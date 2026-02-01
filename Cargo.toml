@@ -1,0 +1,13 @@
+[package]
+name = "fanim"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+colorgrad = { version = "0.8.0", features = ["preset"] }
+hound = "3.5.1"
+num-complex = "0.4.6"
+png = { version = "0.18.0", features = ["zlib-rs"] }
+rayon = "1.11.0"
+serde = { version = "1.0.228", features = ["derive"] }
+tint = { path = "tint", features = ["std", "serde"] }
