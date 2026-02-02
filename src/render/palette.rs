@@ -1,85 +1,84 @@
+use crate::render::{Palette, Renderer};
+use bevy_ecs::prelude::*;
 use tint::Srgb;
 
-/// Matches `palette` on [`colorgrad`] preset functions.
-pub fn parse_palette(palette: &str) -> Vec<Srgb> {
-    macro_rules! match_colorgrad {
-        (palette, $($arm:ident,)*) => {
-            match palette {
-                $(stringify!($arm) => generate_gradient(&colorgrad::preset::$arm()),)*
-                _ => {
-                    println!("Unknown palette: {}", palette);
-                    std::process::exit(1);
-                }
+macro_rules! palette_builder {
+    ($($palette:ident,)*) => {
+        $(
+            #[allow(unused)]
+            pub fn $palette() -> [Srgb; 32] {
+                generate_gradient(&colorgrad::preset::$palette())
             }
-        };
-    }
-
-    match_colorgrad!(
-        palette,
-        blues,
-        br_bg,
-        bu_gn,
-        bu_pu,
-        cividis,
-        cool,
-        cubehelix_default,
-        gn_bu,
-        greens,
-        greys,
-        inferno,
-        magma,
-        or_rd,
-        oranges,
-        pi_yg,
-        plasma,
-        pr_gn,
-        pu_bu,
-        pu_bu_gn,
-        pu_or,
-        pu_rd,
-        purples,
-        rainbow,
-        rd_bu,
-        rd_gy,
-        rd_pu,
-        rd_yl_bu,
-        rd_yl_gn,
-        reds,
-        sinebow,
-        spectral,
-        turbo,
-        viridis,
-        warm,
-        yl_gn,
-        yl_gn_bu,
-        yl_or_br,
-        yl_or_rd,
-    )
+        )*
+    };
 }
 
-fn generate_gradient(grad: &impl colorgrad::Gradient) -> Vec<Srgb> {
-    let mut palette = Vec::new();
+palette_builder!(
+    blues,
+    br_bg,
+    bu_gn,
+    bu_pu,
+    cividis,
+    cool,
+    cubehelix_default,
+    gn_bu,
+    greens,
+    greys,
+    inferno,
+    magma,
+    or_rd,
+    oranges,
+    pi_yg,
+    plasma,
+    pr_gn,
+    pu_bu,
+    pu_bu_gn,
+    pu_or,
+    pu_rd,
+    purples,
+    rainbow,
+    rd_bu,
+    rd_gy,
+    rd_pu,
+    rd_yl_bu,
+    rd_yl_gn,
+    reds,
+    sinebow,
+    spectral,
+    turbo,
+    viridis,
+    warm,
+    yl_gn,
+    yl_gn_bu,
+    yl_or_br,
+    yl_or_rd,
+);
+
+fn generate_gradient(grad: &impl colorgrad::Gradient) -> [Srgb; 32] {
+    let mut palette = [Srgb::default(); 32];
     let samples = 16;
+    let mut i = 0;
     for x in 0..=samples {
         let rgb = grad.at(x as f32 / samples as f32);
         let [r, g, b, _] = rgb.to_rgba8();
-        palette.push(Srgb::new(r, g, b, 255));
+        palette[i] = Srgb::new(r, g, b, 255);
+        i += 1;
     }
     for x in (1..samples).rev() {
         let rgb = grad.at(x as f32 / samples as f32);
         let [r, g, b, _] = rgb.to_rgba8();
-        palette.push(Srgb::new(r, g, b, 255));
+        palette[i] = Srgb::new(r, g, b, 255);
+        i += 1;
     }
     palette
 }
 
-/// Stores a palette in a texture.
-pub struct Palette {
+#[derive(Component)]
+pub struct PaletteBindGroup {
     pub bind_group: wgpu::BindGroup,
-    pub len: usize,
 }
 
-impl Palette {
+impl PaletteBindGroup {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, palette: &[Srgb]) -> Self {
         assert_eq!(palette.len(), 32);
         let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -139,10 +138,7 @@ impl Palette {
             ],
         });
 
-        Self {
-            bind_group,
-            len: palette.len(),
-        }
+        Self { bind_group }
     }
 
     pub fn bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
@@ -168,4 +164,12 @@ impl Palette {
             ],
         })
     }
+}
+
+pub fn spawn(mut commands: Commands, renderer: Single<&Renderer>, palette: Single<&Palette>) {
+    commands.spawn(PaletteBindGroup::new(
+        &renderer.device,
+        &renderer.queue,
+        &palette.0,
+    ));
 }

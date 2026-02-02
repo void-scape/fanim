@@ -1,17 +1,56 @@
-use crate::byte_slice;
+use crate::{
+    animation::DeltaTime,
+    byte_slice,
+    render::{Renderer, ssaa::SsaaPipeline},
+};
+use bevy_app::{AppExit, Last, Plugin, PostStartup};
+use bevy_ecs::prelude::*;
 use std::{
     fs::File,
     io::{BufWriter, Write},
-    path::Path,
+    os::unix::fs::MetadataExt,
 };
 use tint::Srgb;
+
+pub struct EncoderPlugin {
+    pub fps: usize,
+    pub sample_rate: usize,
+    pub data_path: String,
+    pub output_path: String,
+}
+
+impl Plugin for EncoderPlugin {
+    fn build(&self, app: &mut bevy_app::App) {
+        let fps = self.fps;
+        let sample_rate = self.sample_rate;
+        let output_path = self.output_path.clone();
+        let data_path = self.data_path.clone();
+        let spawn_encoder =
+            move |mut commands: Commands, renderer: Single<&Renderer>| -> bevy_ecs::error::Result {
+                commands.spawn(Encoder::new(
+                    output_path.clone(),
+                    data_path.clone(),
+                    renderer.width,
+                    renderer.height,
+                    fps,
+                    sample_rate,
+                )?);
+                commands.spawn(DeltaTime(1.0 / fps as f32));
+                Ok(())
+            };
+        app.add_systems(PostStartup, spawn_encoder)
+            .add_systems(Last, render_frame);
+    }
+}
 
 /// Encodes image and audio data into an mp4 video.
 ///
 /// Uses a `data_path` to store intermediate frame and audio data before compiling
-/// with `ffmpeg` in [`Encoder::finish`].
+/// with `ffmpeg` in [`finish`].
+#[derive(Component)]
 pub struct Encoder {
     data_path: String,
+    output_path: String,
     width: usize,
     height: usize,
     fps: usize,
@@ -23,8 +62,9 @@ pub struct Encoder {
 }
 
 impl Encoder {
-    pub fn new<P: AsRef<Path>>(
-        data_path: P,
+    pub fn new(
+        output_path: String,
+        data_path: String,
         width: usize,
         height: usize,
         fps: usize,
@@ -35,11 +75,11 @@ impl Encoder {
             "the sample rate needs to be divisible by fps in order \
             to collect whole samples"
         );
-        let data_path = data_path.as_ref().to_str().unwrap().to_string();
         let file = File::create(format!("{data_path}/samples.ppm"))?;
 
         Ok(Self {
             audio_file: BufWriter::new(file),
+            output_path,
             data_path,
             width,
             height,
@@ -49,11 +89,6 @@ impl Encoder {
             frame: 0,
             time: 0.0,
         })
-    }
-
-    /// Step `event` until it is completely rendered.
-    pub fn render_event(&mut self, event: &mut impl Event) -> std::io::Result<()> {
-        event.complete(self, 1.0 / self.fps as f32)
     }
 
     /// Write `pixels` and `samples` into `data_path`.
@@ -83,34 +118,84 @@ impl Encoder {
         self.frame += 1;
         Ok(())
     }
-
-    /// Generate an mp4 video from the `data_path` to `output_path`.
-    pub fn finish<P: AsRef<Path>>(mut self, output_path: P) -> std::io::Result<()> {
-        self.audio_file.flush()?;
-        ffmpeg(
-            &self.data_path,
-            output_path.as_ref().to_str().unwrap(),
-            self.fps,
-            self.sample_rate,
-        )
-    }
 }
 
-pub trait Event: Sized {
-    fn step(&mut self, encoder: &mut Encoder, dt: f32) -> std::io::Result<bool>;
-    fn complete(&mut self, encoder: &mut Encoder, dt: f32) -> std::io::Result<()> {
-        while self.step(encoder, dt)? {}
-        Ok(())
+pub fn render_frame(
+    renderer: Single<&Renderer>,
+    ssaa: Single<&SsaaPipeline>,
+    mut video_encoder: Single<&mut Encoder>,
+) -> bevy_ecs::error::Result {
+    let mut encoder = renderer
+        .device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+
+    encoder.copy_texture_to_buffer(
+        wgpu::TexelCopyTextureInfo {
+            texture: ssaa.output_texture(),
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::TexelCopyBufferInfo {
+            buffer: &renderer.output_buffer,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(renderer.bytes_per_row as u32),
+                rows_per_image: None,
+            },
+        },
+        wgpu::Extent3d {
+            width: renderer.width as u32,
+            height: renderer.height as u32,
+            depth_or_array_layers: 1,
+        },
+    );
+    renderer.queue.submit(Some(encoder.finish()));
+
+    let buffer_slice = renderer.output_buffer.slice(..);
+    buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
+    renderer
+        .device
+        .poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: None,
+        })
+        .unwrap();
+
+    let padded_data = buffer_slice.get_mapped_range();
+    let mut pixels = Vec::with_capacity(renderer.width * renderer.height);
+    for chunk in padded_data.chunks(renderer.bytes_per_row) {
+        pixels.extend(
+            chunk[..renderer.width * 4]
+                .chunks(4)
+                .map(|c| Srgb::new(c[0], c[1], c[2], c[3])),
+        );
     }
+    drop(padded_data);
+    renderer.output_buffer.unmap();
+
+    video_encoder.render_frame(&pixels, &mut |_| (0.0, 0.0))?;
+    Ok(())
 }
 
-impl<F> Event for F
-where
-    F: FnMut(&mut Encoder, f32) -> std::io::Result<bool>,
-{
-    fn step(&mut self, encoder: &mut Encoder, dt: f32) -> std::io::Result<bool> {
-        self(encoder, dt)
-    }
+pub fn finish(
+    mut writer: MessageWriter<AppExit>,
+    mut encoder: Single<&mut Encoder>,
+) -> bevy_ecs::error::Result {
+    encoder.audio_file.flush()?;
+    ffmpeg(
+        &encoder.data_path,
+        &encoder.output_path,
+        encoder.fps,
+        encoder.sample_rate,
+    )?;
+    writer.write(AppExit::Success);
+    println!(
+        "[LOG] Wrote {} bytes to {}",
+        std::fs::metadata(&encoder.output_path)?.size(),
+        encoder.output_path
+    );
+    Ok(())
 }
 
 // Fast png encoding using the rust `png` crate.

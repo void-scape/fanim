@@ -1,7 +1,11 @@
+use crate::render::Renderer;
+use bevy_ecs::prelude::*;
+
 /// Blits a texture to a render target.
 ///
 /// If the texture happens to be higher resolution than the render target,
 /// then this operation performs supersampling.
+#[derive(Component)]
 pub struct SsaaPipeline {
     pipeline: wgpu::RenderPipeline,
     bind_group: wgpu::BindGroup,
@@ -9,6 +13,43 @@ pub struct SsaaPipeline {
     dst: wgpu::Texture,
     dst_view: wgpu::TextureView,
     samples: usize,
+}
+
+pub fn spawn(mut commands: Commands, renderer: Single<&Renderer>) {
+    commands.spawn(SsaaPipeline::new(
+        &renderer.device,
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        renderer.width,
+        renderer.height,
+        renderer.samples,
+    ));
+}
+
+pub fn render_pass(renderer: Single<&Renderer>, pipeline: Single<&SsaaPipeline>) {
+    let mut encoder = renderer
+        .device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+    let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: None,
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view: &pipeline.dst_view,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                store: wgpu::StoreOp::Store,
+            },
+            depth_slice: None,
+        })],
+        depth_stencil_attachment: None,
+        timestamp_writes: None,
+        occlusion_query_set: None,
+        multiview_mask: None,
+    });
+    rpass.set_pipeline(&pipeline.pipeline);
+    rpass.set_bind_group(0, &pipeline.bind_group, &[]);
+    rpass.draw(0..3, 0..1);
+    drop(rpass);
+    renderer.queue.submit([encoder.finish()]);
 }
 
 impl SsaaPipeline {
@@ -145,28 +186,5 @@ impl SsaaPipeline {
     /// Texture that contains the final mandelbrot render.
     pub fn output_texture(&self) -> &wgpu::Texture {
         &self.dst
-    }
-
-    /// Render `render_target` into `output_texture`.
-    pub fn render_pass(&self, encoder: &mut wgpu::CommandEncoder) {
-        let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: None,
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &self.dst_view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                    store: wgpu::StoreOp::Store,
-                },
-                depth_slice: None,
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-            multiview_mask: None,
-        });
-        rpass.set_pipeline(&self.pipeline);
-        rpass.set_bind_group(0, &self.bind_group, &[]);
-        rpass.draw(0..3, 0..1);
     }
 }

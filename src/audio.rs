@@ -1,13 +1,9 @@
-use crate::tween::*;
-
-crate::lerp! {
-    #[derive(Clone, Copy, PartialEq)]
-    pub struct Audio {
-        pub crush: f64,
-        pub lpf_cutoff: f64,
-        pub lpf_q: f64,
-        pub volume: f64,
-    }
+#[derive(Clone, Copy, PartialEq)]
+pub struct Audio {
+    pub crush: f64,
+    pub lpf_cutoff: f64,
+    pub lpf_q: f64,
+    pub volume: f64,
 }
 
 impl Default for Audio {

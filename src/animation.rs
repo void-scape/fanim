@@ -1,153 +1,371 @@
-pub struct Timeline<T> {
-    start: T,
-    steps: Vec<(T, f32, EaseFunction)>,
-}
+use bevy_app::{Plugin, Startup, Update};
+use bevy_ecs::{component::Mutable, lifecycle::HookContext, prelude::*, world::DeferredWorld};
 
-impl<T: Interpolate + Clone + 'static> Timeline<T> {
-    pub fn builder(start: T) -> TimelineBuilder<T> {
-        TimelineBuilder {
-            start_state: start.clone(),
-            current_state: start,
-            steps: Vec::new(),
-        }
-    }
+pub struct AnimationPlugin;
 
-    pub fn step(&self, mut t: f32) -> Option<T::Output> {
-        let mut current = &self.start;
-        for (next, dur, ease) in &self.steps {
-            if t < *dur {
-                let factor = ease.eval(t / dur);
-                return Some(current.lerp(next, factor));
-            }
-            t -= *dur;
-            current = next;
-        }
-        None
-    }
-}
+impl Plugin for AnimationPlugin {
+    fn build(&self, app: &mut bevy_app::App) {
+        app.add_observer(active)
+            .add_observer(advance)
+            .add_observer(animation_target)
+            .add_systems(
+                Startup,
+                propagate_animation_target.in_set(AnimationSystems::Startup),
+            )
+            .add_systems(
+                Update,
+                (
+                    one_shot_system.in_set(AnimationSystems::Interpolate),
+                    playhead.in_set(AnimationSystems::Step),
+                ),
+            );
 
-pub struct TimelineBuilder<T> {
-    start_state: T,
-    current_state: T,
-    steps: Vec<(T, f32, EaseFunction)>,
-}
-
-impl<T: Clone> TimelineBuilder<T> {
-    pub fn event(
-        mut self,
-        duration: f32,
-        ease: EaseFunction,
-        mods: &[Box<dyn Fn(&mut T)>],
-    ) -> Self {
-        for modifier in mods {
-            modifier(&mut self.current_state);
-        }
-        self.steps
-            .push((self.current_state.clone(), duration, ease));
-        self
-    }
-
-    pub fn build(self) -> Timeline<T> {
-        Timeline {
-            start: self.start_state,
-            steps: self.steps,
-        }
+        app.configure_sets(
+            Update,
+            AnimationSystems::Step.after(AnimationSystems::Interpolate),
+        );
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, SystemSet)]
+pub enum AnimationSystems {
+    Startup,
+    Interpolate,
+    Step,
+}
+
+#[derive(Component)]
+#[component(immutable)]
+pub struct DeltaTime(pub f32);
+
+#[derive(Clone, Copy, Component)]
+pub struct AnimationTarget(pub Entity);
+
+impl AnimationTarget {
+    pub fn entity() -> Self {
+        Self(Entity::PLACEHOLDER)
+    }
+}
+
+fn animation_target(
+    added: On<Add, AnimationTarget>,
+    mut commands: Commands,
+    targets: Query<&AnimationTarget>,
+) {
+    if targets.get(added.entity).unwrap().0 == Entity::PLACEHOLDER {
+        commands
+            .entity(added.entity)
+            .insert(AnimationTarget(added.entity));
+    }
+}
+
+fn propagate_animation_target(
+    mut commands: Commands,
+    targets: Query<(Entity, &AnimationTarget)>,
+    animations: Query<&Animations>,
+) {
+    for (entity, target) in targets.iter() {
+        for entity in animations.iter_leaves::<Animations>(entity) {
+            commands.entity(entity).insert(*target);
+        }
+    }
+}
+
+#[derive(Component)]
+#[relationship_target(relationship = AnimationOf)]
+pub struct Animations(Vec<Entity>);
 
 #[macro_export]
-macro_rules! lerp {
-    {
-        $(#[$struct_meta:meta])*
-        pub struct $ident:ident {
-            $(pub $field:ident: $ty:ty,)*
-        }
-    } => {
-        $(#[$struct_meta])*
-        pub struct $ident {
-            $(pub $field: $ty,)*
-        }
-
-        impl Interpolate for $ident {
-            type Output = Self;
-            fn interpolate(start: &Self, end: &Self, t: f32) -> Self::Output {
-                Self {
-                    $(
-                        $field: start.$field.lerp(&end.$field, t),
-                    )*
-                }
-            }
-        }
-
-        $(
-            pub fn $field($field: $ty) -> Box<dyn Fn(&mut $ident)> {
-                Box::new(move |config| {
-                    config.$field = $field;
-                })
-            }
-        )*
+macro_rules! animations {
+    [$($child:expr),*$(,)?] => {
+        bevy_ecs::related!($crate::animation::Animations [$($child),*])
     };
 }
 
-pub trait Lerp {
-    type Output;
-    fn lerp(&self, rhs: &Self, t: f32) -> Self::Output;
+#[macro_export]
+macro_rules! parallel {
+    [$($child:expr),*$(,)?] => {
+        (bevy_ecs::related!($crate::animation::Animations [$($child),*]), $crate::animation::Parallel)
+    };
 }
 
-impl<T, O> Lerp for T
+#[derive(Component)]
+#[relationship(relationship_target = Animations)]
+pub struct AnimationOf(pub Entity);
+
+#[derive(Component)]
+pub struct Parallel;
+
+#[derive(Component)]
+#[require(Playhead)]
+pub struct Duration(pub f32);
+
+#[derive(Default, Component)]
+struct Playhead(f32);
+
+#[derive(Component)]
+pub struct Finished;
+
+fn end<T: Component<Mutability = Mutable> + Lerp + Clone>(
+    added: On<Add, Finished>,
+    animations: Query<(&AnimationTarget, &Keyframe<T>)>,
+    mut targets: Query<&mut T>,
+) {
+    if let Ok((target, keyframe)) = animations.get(added.entity) {
+        let Ok(mut component) = targets.get_mut(target.0) else {
+            panic!(
+                "animation target does not have component {}",
+                std::any::type_name::<T>()
+            );
+        };
+        *component = keyframe.0.clone();
+    }
+}
+
+#[derive(Component)]
+pub struct Active;
+
+fn active(
+    inserted: On<Insert, Active>,
+    mut commands: Commands,
+    roots: Query<(&Animations, Option<&Playhead>, Has<Parallel>)>,
+    leaves: Query<Entity, Without<Finished>>,
+) {
+    if let Ok((children, remainder, is_parallel)) = roots.get(inserted.entity) {
+        for leaf in
+            leaves
+                .iter_many(children.iter())
+                .take(if is_parallel { children.len() } else { 1 })
+        {
+            commands.entity(leaf).insert(Active);
+            if let Some(remainder) = remainder {
+                commands.entity(leaf).insert(Playhead(remainder.0));
+            }
+        }
+    }
+}
+
+#[derive(Component)]
+struct Advance(f32);
+
+fn advance(
+    inserted: On<Insert, Advance>,
+    mut commands: Commands,
+    advance: Query<&Advance>,
+    roots: Query<(&Animations, Option<&AnimationOf>, Has<Parallel>)>,
+    leaves: Query<Entity, Without<Finished>>,
+) {
+    let remainder = advance.get(inserted.entity).unwrap().0;
+    let (children, parent, is_parallel) = roots.get(inserted.entity).unwrap();
+    if is_parallel && leaves.iter_many(children.iter()).next().is_none() {
+        commands.entity(inserted.entity).insert(Finished);
+        if let Some(parent) = parent {
+            commands.entity(parent.0).insert(Advance(remainder));
+        }
+    } else {
+        match leaves.iter_many(children.iter()).fetch_next() {
+            Some(next) => {
+                commands.entity(next).insert((Active, Playhead(remainder)));
+            }
+            None => {
+                commands.entity(inserted.entity).insert(Finished);
+                if let Some(parent) = parent {
+                    commands.entity(parent.0).insert(Advance(remainder));
+                }
+            }
+        }
+    }
+}
+
+fn playhead(
+    mut commands: Commands,
+    mut leaves: Query<(Entity, &mut Playhead, &Duration, &AnimationOf), With<Active>>,
+    dt: Single<&DeltaTime>,
+) {
+    for (entity, mut playhead, duration, parent) in leaves.iter_mut() {
+        playhead.0 += dt.0;
+        if playhead.0 >= duration.0 {
+            commands.entity(entity).remove::<Active>().insert(Finished);
+            commands
+                .entity(parent.0)
+                .insert(Advance(playhead.0 - duration.0));
+        }
+    }
+}
+
+// TODO: this whole system is a mess
+#[derive(Component)]
+pub struct System(Option<Box<dyn FnMut(&mut World) + Send + Sync>>);
+
+pub fn system<S, M>(s: S) -> System
 where
-    T: Interpolate<Output = O>,
+    S: IntoSystem<(), (), M> + Send + Sync + 'static,
 {
-    type Output = O;
-    fn lerp(&self, rhs: &Self, t: f32) -> Self::Output {
-        T::interpolate(self, rhs, t)
+    let mut s = Some(s);
+    let mut id = None;
+    System(Some(Box::new(move |world: &mut World| match id {
+        Some(id) => {
+            world.run_system(id).unwrap();
+        }
+        None => {
+            let system = world.register_system(s.take().unwrap());
+            world.run_system(system).unwrap();
+            id = Some(system);
+        }
+    })))
+}
+
+fn one_shot_system(
+    mut commands: Commands,
+    animations: Query<Entity, (With<System>, With<Active>, With<Duration>)>,
+) {
+    for entity in animations.iter() {
+        commands.queue(move |world: &mut World| {
+            let mut system = world.get_mut::<System>(entity).unwrap();
+            let mut s = system.0.take().unwrap();
+            s(world);
+            let mut system = world.get_mut::<System>(entity).unwrap();
+            _ = system.0.insert(s);
+        });
     }
 }
 
-pub trait Interpolate {
-    type Output;
-    fn interpolate(start: &Self, end: &Self, t: f32) -> Self::Output;
+#[derive(Component)]
+#[component(on_insert = schedule_keyframe::<T>)]
+pub struct Keyframe<T: Component<Mutability = Mutable> + Lerp + Clone>(pub T);
+
+fn schedule_keyframe<T: Component<Mutability = Mutable> + Lerp + Clone>(
+    mut world: DeferredWorld,
+    _: HookContext,
+) {
+    world.commands().queue(|world: &mut World| {
+        world.add_observer(start::<T>);
+        world.add_observer(end::<T>);
+        world.schedule_scope(Update, |_, schedule| {
+            schedule.add_systems(keyframe::<T>.in_set(AnimationSystems::Interpolate));
+        });
+    });
 }
 
-impl Interpolate for f32 {
-    type Output = f32;
-    fn interpolate(start: &Self, end: &Self, t: f32) -> Self::Output {
-        *start * (1.0 - t) + *end * t
+fn keyframe<T: Component<Mutability = Mutable> + Lerp + Clone>(
+    mut targets: Query<&mut T>,
+    animations: Query<
+        (
+            &AnimationTarget,
+            &Start<T>,
+            &Keyframe<T>,
+            &Playhead,
+            &Duration,
+            Option<&EaseFunction>,
+        ),
+        With<Active>,
+    >,
+) {
+    for (target, start, end, playhead, duration, ease) in animations.iter() {
+        let Ok(mut component) = targets.get_mut(target.0) else {
+            panic!(
+                "animation target does not have component {}",
+                std::any::type_name::<T>()
+            );
+        };
+        let mut t = (playhead.0 / duration.0).clamp(0.0, 1.0);
+        if let Some(ease) = ease {
+            t = ease.eval(t);
+        }
+        *component = start.0.lerp(&end.0, t);
     }
 }
 
-impl Interpolate for f64 {
-    type Output = f64;
-    fn interpolate(start: &Self, end: &Self, t: f32) -> Self::Output {
-        *start * (1.0 - t as f64) + *end * t as f64
+#[derive(Component)]
+struct Start<T: Component>(T);
+
+fn start<T: Component + Clone>(
+    inserted: On<Add, Active>,
+    mut commands: Commands,
+    targets: Query<&AnimationTarget>,
+    components: Query<&T>,
+) {
+    if let Ok(target) = targets.get(inserted.entity) {
+        match components.get(target.0) {
+            Ok(current) => {
+                commands
+                    .entity(inserted.entity)
+                    .insert(Start(current.clone()));
+            }
+            Err(_) => {
+                panic!(
+                    "animation target does not have component {}",
+                    std::any::type_name::<T>()
+                );
+            }
+        }
     }
 }
 
-impl Interpolate for usize {
-    type Output = usize;
-    fn interpolate(start: &Self, end: &Self, t: f32) -> Self::Output {
-        f32::interpolate(&(*start as f32), &(*end as f32), t).round() as usize
+pub trait Lerp {
+    fn lerp(&self, rhs: &Self, t: f32) -> Self;
+}
+
+impl Lerp for f32 {
+    fn lerp(&self, rhs: &Self, t: f32) -> Self {
+        *self * (1.0 - t) + *rhs * t
     }
 }
 
-impl Interpolate for u32 {
-    type Output = u32;
-    fn interpolate(start: &Self, end: &Self, t: f32) -> Self::Output {
-        f32::interpolate(&(*start as f32), &(*end as f32), t).round() as u32
+impl Lerp for f64 {
+    fn lerp(&self, rhs: &Self, t: f32) -> Self {
+        *self * (1.0 - t as f64) + *rhs * t as f64
     }
 }
 
 #[derive(Clone, Copy)]
 pub struct LogF32(pub f32);
 
-impl Interpolate for LogF32 {
-    type Output = f32;
-    fn interpolate(start: &Self, end: &Self, t: f32) -> Self::Output {
-        (start.0.ln() * (1.0 - t) + end.0.ln() * t).exp()
+impl Lerp for LogF32 {
+    fn lerp(&self, rhs: &Self, t: f32) -> Self {
+        Self((self.0.ln() * (1.0 - t) + rhs.0.ln() * t).exp())
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+macro_rules! lerp_prim {
+    ($prim:ident) => {
+        impl Lerp for $prim {
+            fn lerp(&self, rhs: &Self, t: f32) -> Self {
+                (*self as f32).lerp(&(*rhs as f32), t).round() as $prim
+            }
+        }
+    };
+}
+
+lerp_prim!(u8);
+lerp_prim!(u16);
+lerp_prim!(u32);
+lerp_prim!(u64);
+lerp_prim!(usize);
+
+lerp_prim!(i8);
+lerp_prim!(i16);
+lerp_prim!(i32);
+lerp_prim!(i64);
+lerp_prim!(isize);
+
+#[macro_export]
+macro_rules! lerp_newtype {
+    (
+        $(#[$meta:meta])*
+        $vis:vis struct $name:ident($ivis:vis $type:ty);
+    ) => {
+        $(#[$meta])*
+        $vis struct $name($ivis $type);
+        impl $crate::animation::Lerp for $name {
+            fn lerp(&self, rhs: &Self, t: f32) -> Self {
+                $name(self.0.lerp(&rhs.0, t))
+            }
+        }
+    };
+}
+
+#[derive(Clone, Copy, Component)]
 pub enum EaseFunction {
     /// `f(t) = t`
     Linear,

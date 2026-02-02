@@ -66,15 +66,6 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let c = pc * (1.0 - args.julia) + julia * args.julia;
     var z = pz * (1.0 - args.julia) + pc * args.julia;
 
-    if (args.julia == 0.0 && args.burning_ship == 0.0) {
-        let y2 = y0 * y0;
-        let q = (x0 - 0.25) * (x0 - 0.25) + y2;
-        if (q * (q + (x0 - 0.25)) < 0.25 * y2 || (x0 + 1.0) * (x0 + 1.0) + y2 < 0.0625) {
-            textureStore(output, vec2(id.xy), vec4(0.0, 0.0, 0.0, 1.0));
-            return;
-        }
-    }
-
     var iteration: u32 = 0;
     while (dot(z, z) < args.escape_radius * args.escape_radius && iteration < args.iterations) {
         if (args.burning_ship != 0.0) {
