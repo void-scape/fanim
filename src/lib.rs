@@ -1,7 +1,9 @@
 pub mod audio;
+mod compute;
 pub mod encoder;
 pub mod palette;
 pub mod render;
+mod ssaa;
 pub mod tween;
 
 /// Cast a slice to bytes.

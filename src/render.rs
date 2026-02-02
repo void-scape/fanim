@@ -1,13 +1,16 @@
-use crate::tween::{Interpolate, Lerp, LogF32};
-use num_complex::Complex;
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
-use std::sync::atomic::{AtomicU32, Ordering};
-use tint::{Color, Srgb};
+use crate::{
+    compute::ComputePipeline,
+    palette::Palette,
+    ssaa::SsaaPipeline,
+    tween::{Interpolate, Lerp, LogF32},
+};
+use tint::Srgb;
 
 crate::lerp! {
-    #[derive(Clone, Copy, PartialEq)]
+    #[repr(C)]
+    #[derive(Debug, Clone, Copy, PartialEq)]
     pub struct Fractal {
-        pub iterations: usize,
+        pub iterations: u32,
         pub escape_radius: f32,
         pub color_scale: f32,
         pub exponent: f32,
@@ -19,6 +22,8 @@ crate::lerp! {
         pub cy: f32,
         pub zx: f32,
         pub zy: f32,
+        pub pad1: u32,
+        pub pad2: u32,
     }
 }
 
@@ -37,11 +42,14 @@ impl Default for Fractal {
             cy: 0.0,
             zx: 0.0,
             zy: 0.0,
+            pad1: 0,
+            pad2: 0,
         }
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct View {
     pub x: f32,
     pub y: f32,
@@ -76,113 +84,145 @@ impl Interpolate for View {
 }
 
 pub struct Renderer {
+    pub config: Fractal,
     width: usize,
     height: usize,
-    palette: Vec<Srgb>,
-    data: Vec<AtomicU32>,
-    pixels: Vec<Srgb>,
-    pub config: Fractal,
-    last_config: Fractal,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    compute: ComputePipeline,
+    ssaa: SsaaPipeline,
+    palette: Palette,
+    output_buffer: wgpu::Buffer,
+    bytes_per_row: usize,
 }
 
 impl Renderer {
-    pub fn new(width: usize, height: usize, palette: Vec<Srgb>) -> Self {
-        Self {
-            width,
-            height,
-            palette,
-            data: (0..width * height).map(|_| AtomicU32::new(0)).collect(),
-            pixels: vec![Srgb::default(); width * height],
-            last_config: Fractal {
-                // make sure they arent the same
-                iterations: 0,
-                ..Default::default()
-            },
-            config: Fractal::default(),
-        }
-    }
+    pub fn new(samples: usize, width: usize, height: usize, palette: &[Srgb]) -> Self {
+        env_logger::init();
 
-    pub fn render(&mut self) -> &[Srgb] {
-        if self.config == self.last_config {
-            return &self.pixels;
-        }
-        self.last_config = self.config;
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            compatible_surface: None,
+            force_fallback_adapter: false,
+        }))
+        .unwrap();
+        println!("[ADAPTER] {:?}", adapter.get_info());
 
-        let config = &self.config;
-        let aspect = self.width as f32 / self.height as f32;
-        let er2 = config.escape_radius * config.escape_radius;
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: None,
+            required_features: wgpu::Features::FLOAT32_FILTERABLE,
+            required_limits: adapter.limits(),
+            experimental_features: wgpu::ExperimentalFeatures::disabled(),
+            memory_hints: wgpu::MemoryHints::MemoryUsage,
+            trace: wgpu::Trace::Off,
+        }))
+        .expect("Failed to create device");
 
-        (0..self.width * self.height).into_par_iter().for_each(|i| {
-            let y = i / self.width;
-            let x = i % self.width;
+        let texture_format = wgpu::TextureFormat::Rgba8UnormSrgb;
+        let ssaa = SsaaPipeline::new(&device, texture_format, width, height, samples);
+        let compute = ComputePipeline::new(&device, &ssaa);
+        let palette = Palette::new(&device, &queue, palette);
 
-            let px0 = (x as f32 / self.width as f32 * 2.0 - 1.0) * aspect * config.view.z;
-            let py0 = (y as f32 / self.height as f32 * 2.0 - 1.0) * config.view.z;
-
-            let point = Complex::new(px0, py0);
-            let rotated = point * Complex::from_polar(1.0, config.rotation);
-
-            let x0 = rotated.re + config.view.x;
-            let y0 = rotated.im + config.view.y;
-
-            let pc = Complex::new(x0, y0);
-            let pz = Complex::new(config.zx, config.zy);
-            let julia = Complex::new(config.cx, config.cy);
-            let c = pc * (1.0 - config.julia) + julia * config.julia;
-            let mut z = pz * (1.0 - config.julia) + pc * config.julia;
-
-            if config.julia == 0.0 {
-                // simple cardioid and bulb check
-                //
-                // https://mathr.co.uk/blog/2022-11-19_cardioid_and_bulb_checking.html
-                let y2 = y0 * y0;
-                let q = (x0 - 0.25).powi(2) + y2;
-                if q * (q + (x0 - 0.25)) < 0.25 * y2 || (x0 + 1.0).powi(2) + y2 < 0.25 * 0.25 {
-                    self.data[y * self.width + x]
-                        .store((config.iterations as f32).to_bits(), Ordering::Relaxed);
-                    return;
-                }
-            }
-
-            let mut iteration = 0;
-            while z.norm_sqr() < er2 && iteration < config.iterations {
-                if config.burning_ship != 0.0 {
-                    let mz = z.powf(config.exponent) + c;
-                    let bz = (Complex::new(z.re.abs(), z.im.abs())).powf(config.exponent) + c;
-                    z = mz * (1.0 - config.burning_ship) + bz * config.burning_ship;
-                } else if config.exponent == 2.0 {
-                    z = z * z + c;
-                } else {
-                    z = z.powf(config.exponent) + c;
-                }
-                iteration += 1;
-            }
-
-            if iteration == config.iterations {
-                self.data[y * self.width + x]
-                    .store((config.iterations as f32).to_bits(), Ordering::Relaxed);
-                return;
-            }
-
-            let zn = z.norm_sqr();
-            let nu = (zn.log2() * 0.5).log2() / config.exponent.log2();
-            let iteration = iteration as f32 + 1.0 - nu;
-            self.data[y * self.width + x].store(iteration.to_bits(), Ordering::Relaxed);
+        let (bytes_per_row, buffer_size) = output_buffer_bytes_per_row_and_size(width, height);
+        let output_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: buffer_size as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
         });
 
-        let data = unsafe { std::mem::transmute::<&[AtomicU32], &[u32]>(self.data.as_slice()) };
-        for (pixel, data) in self.pixels.iter_mut().zip(data.iter()) {
-            let iteration = f32::from_bits(*data);
-            if iteration >= config.iterations as f32 {
-                *pixel = Srgb::from_rgb(0, 0, 0);
-            } else {
-                let index = (iteration * config.color_scale) % self.palette.len() as f32;
-                let c1 = self.palette[index as usize];
-                let c2 = self.palette[(index as usize + 1) % self.palette.len()];
-                let c = c1.to_linear() * (1.0 - index.fract()) + c2.to_linear() * index.fract();
-                *pixel = c.to_srgb();
-            }
+        Self {
+            config: Fractal::default(),
+            width,
+            height,
+            device,
+            queue,
+            compute,
+            ssaa,
+            palette,
+            output_buffer,
+            bytes_per_row,
         }
-        &self.pixels
     }
+
+    pub fn render(&mut self) {
+        self.compute.write_buffers(&self.queue, &self.config);
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        self.compute.compute_pass(
+            &mut encoder,
+            &self.palette,
+            &self.ssaa,
+            self.width,
+            self.height,
+        );
+        self.ssaa.render_pass(&mut encoder);
+        self.queue.submit([encoder.finish()]);
+    }
+
+    /// Copy the output buffer into a staging buffer then block while staging
+    /// buffer maps to CPU memory.
+    pub fn read_output_buffer(&self) -> Vec<Srgb> {
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: self.ssaa.output_texture(),
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &self.output_buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(self.bytes_per_row as u32),
+                    rows_per_image: None,
+                },
+            },
+            wgpu::Extent3d {
+                width: self.width as u32,
+                height: self.height as u32,
+                depth_or_array_layers: 1,
+            },
+        );
+        self.queue.submit(Some(encoder.finish()));
+
+        let buffer_slice = self.output_buffer.slice(..);
+        buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
+        self.device
+            .poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: None,
+            })
+            .unwrap();
+
+        let padded_data = buffer_slice.get_mapped_range();
+        let mut result = Vec::with_capacity(self.width * self.height);
+        for chunk in padded_data.chunks(self.bytes_per_row) {
+            result.extend(
+                chunk[..self.width * 4]
+                    .chunks(4)
+                    .map(|c| Srgb::new(c[0], c[1], c[2], c[3])),
+            );
+        }
+        drop(padded_data);
+        self.output_buffer.unmap();
+
+        result
+    }
+}
+
+fn output_buffer_bytes_per_row_and_size(width: usize, height: usize) -> (usize, usize) {
+    let bytes_per_pixel = 4;
+    let align = 256;
+    let bpr = width * bytes_per_pixel;
+    let padding = (align - bpr % align) % align;
+    let bpr = bpr + padding;
+    let buffer_size = bpr * height;
+    (bpr, buffer_size)
 }

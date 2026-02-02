@@ -5,9 +5,12 @@ edition = "2024"
 
 [dependencies]
 colorgrad = { version = "0.8.0", features = ["preset"] }
+env_logger = "0.11.8"
 hound = "3.5.1"
 num-complex = "0.4.6"
 png = { version = "0.18.0", features = ["zlib-rs"] }
+pollster = "0.4.0"
 rayon = "1.11.0"
 serde = { version = "1.0.228", features = ["derive"] }
 tint = { path = "tint", features = ["std", "serde"] }
+wgpu = "28.0.0"

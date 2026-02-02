@@ -130,6 +130,13 @@ impl Interpolate for usize {
     }
 }
 
+impl Interpolate for u32 {
+    type Output = u32;
+    fn interpolate(start: &Self, end: &Self, t: f32) -> Self::Output {
+        f32::interpolate(&(*start as f32), &(*end as f32), t).round() as u32
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct LogF32(pub f32);
 

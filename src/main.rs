@@ -29,13 +29,14 @@ fn fractal(f: Box<dyn Fn(&mut Fractal)>) -> Box<dyn Fn(&mut Scene)> {
 }
 
 fn main() -> std::io::Result<()> {
-    let scale = 120;
+    let scale = 16;
     let width = 16 * scale;
     let height = 9 * scale;
     println!("{}x{}", width, height);
 
-    let fps = 30;
+    let fps = 10;
     let sample_rate = 44_100;
+    let samples = 1;
 
     let data_path = "data";
     _ = std::fs::remove_dir_all(data_path);
@@ -53,7 +54,7 @@ fn main() -> std::io::Result<()> {
             ..Default::default()
         },
         fractal: Fractal {
-            iterations: 100_000,
+            iterations: 1_000,
             color_scale: 0.0,
             // dragon
             cx: -0.835,
@@ -172,7 +173,12 @@ fn main() -> std::io::Result<()> {
     )
     .build();
 
-    let mut renderer = Renderer::new(width, height, fanim::palette::parse_palette("magma"));
+    let mut renderer = Renderer::new(
+        samples,
+        width,
+        height,
+        &fanim::palette::parse_palette("magma"),
+    );
     let mut lpfl = Biquad::default();
     let mut lpfr = Biquad::default();
     let mut time = 0.0;
@@ -180,7 +186,9 @@ fn main() -> std::io::Result<()> {
         if let Some(scene) = timeline.step(time) {
             time += dt;
             renderer.config = scene.fractal;
-            encoder.render_frame(renderer.render(), &mut |sample_time| {
+            renderer.render();
+            let pixels = renderer.read_output_buffer();
+            encoder.render_frame(&pixels, &mut |sample_time| {
                 if let Some(sample_scene) = timeline.step(sample_time) {
                     let mut samples = reader.samples::<i16>();
                     match (samples.next(), samples.next()) {
