@@ -1,4 +1,4 @@
-use bevy_app::{Plugin, Startup, Update};
+use bevy_app::{Plugin, PostStartup, Update};
 use bevy_ecs::{component::Mutable, lifecycle::HookContext, prelude::*, world::DeferredWorld};
 
 pub struct AnimationPlugin;
@@ -9,8 +9,8 @@ impl Plugin for AnimationPlugin {
             .add_observer(advance)
             .add_observer(animation_target)
             .add_systems(
-                Startup,
-                propagate_animation_target.in_set(AnimationSystems::Startup),
+                PostStartup,
+                (propagate_animation_target, start_roots).chain(),
             )
             .add_systems(
                 Update,
@@ -29,7 +29,6 @@ impl Plugin for AnimationPlugin {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, SystemSet)]
 pub enum AnimationSystems {
-    Startup,
     Interpolate,
     Step,
 }
@@ -124,6 +123,15 @@ fn end<T: Component<Mutability = Mutable> + Lerp + Clone>(
 
 #[derive(Component)]
 pub struct Active;
+
+fn start_roots(
+    mut commands: Commands,
+    roots: Query<Entity, (With<Animations>, Without<AnimationOf>)>,
+) {
+    for root in roots.iter() {
+        commands.entity(root).insert(Active);
+    }
+}
 
 fn active(
     inserted: On<Insert, Active>,

@@ -1,5 +1,6 @@
 use crate::{
     animation::DeltaTime,
+    audio::{SampleRate, Samples},
     byte_slice,
     render::{Renderer, ssaa::SsaaPipeline},
 };
@@ -25,19 +26,23 @@ impl Plugin for EncoderPlugin {
         let sample_rate = self.sample_rate;
         let output_path = self.output_path.clone();
         let data_path = self.data_path.clone();
-        let spawn_encoder =
-            move |mut commands: Commands, renderer: Single<&Renderer>| -> bevy_ecs::error::Result {
-                commands.spawn(Encoder::new(
-                    output_path.clone(),
-                    data_path.clone(),
-                    renderer.width,
-                    renderer.height,
-                    fps,
-                    sample_rate,
-                )?);
-                commands.spawn(DeltaTime(1.0 / fps as f32));
-                Ok(())
-            };
+        let spawn_encoder = move |mut commands: Commands| -> bevy_ecs::error::Result {
+            commands.spawn(Encoder::new(
+                output_path.clone(),
+                data_path.clone(),
+                fps,
+                sample_rate,
+            )?);
+            commands.spawn(DeltaTime(1.0 / fps as f32));
+            assert!(
+                sample_rate.is_multiple_of(fps),
+                "the sample rate needs to be divisible by fps in order \
+                    to collect whole samples"
+            );
+            commands.spawn(Samples(vec![(0.0, 0.0); sample_rate / fps]));
+            commands.spawn(SampleRate(sample_rate));
+            Ok(())
+        };
         app.add_systems(PostStartup, spawn_encoder)
             .add_systems(Last, render_frame);
     }
@@ -51,78 +56,35 @@ impl Plugin for EncoderPlugin {
 pub struct Encoder {
     data_path: String,
     output_path: String,
-    width: usize,
-    height: usize,
     fps: usize,
     sample_rate: usize,
-    samples_per_frame: usize,
     audio_file: BufWriter<File>,
     frame: usize,
-    time: f32,
 }
 
 impl Encoder {
     pub fn new(
         output_path: String,
         data_path: String,
-        width: usize,
-        height: usize,
         fps: usize,
         sample_rate: usize,
     ) -> std::io::Result<Self> {
-        assert!(
-            sample_rate.is_multiple_of(fps),
-            "the sample rate needs to be divisible by fps in order \
-            to collect whole samples"
-        );
         let file = File::create(format!("{data_path}/samples.ppm"))?;
-
         Ok(Self {
             audio_file: BufWriter::new(file),
             output_path,
             data_path,
-            width,
-            height,
             fps,
             sample_rate,
-            samples_per_frame: sample_rate / fps,
             frame: 0,
-            time: 0.0,
         })
-    }
-
-    /// Write `pixels` and `samples` into `data_path`.
-    ///
-    /// `pixels` generates the entire frame at once, whereas `samples` is repeatedly
-    /// called until the necessary number of samples is collected.
-    pub fn render_frame<S>(&mut self, pixels: &[Srgb], samples: &mut S) -> std::io::Result<()>
-    where
-        S: FnMut(f32) -> (f32, f32),
-    {
-        assert_eq!(
-            pixels.len(),
-            self.width * self.height,
-            "tried to call `Encoder::render_frames` \
-            with the incorrect pixel dimensions"
-        );
-        let output = format!("{}/{}.png", self.data_path, self.frame);
-        png(&output, byte_slice(pixels), self.width, self.height)?;
-        let dt = 1.0 / self.sample_rate as f32;
-        for _ in 0..self.samples_per_frame {
-            let (l, r) = samples(self.time);
-            self.audio_file.write_all(&l.to_le_bytes())?;
-            self.audio_file.write_all(&r.to_le_bytes())?;
-            self.time += dt;
-        }
-        println!("[LOG] Rendered frame {}", self.frame);
-        self.frame += 1;
-        Ok(())
     }
 }
 
 pub fn render_frame(
     renderer: Single<&Renderer>,
     ssaa: Single<&SsaaPipeline>,
+    samples: Single<&Samples>,
     mut video_encoder: Single<&mut Encoder>,
 ) -> bevy_ecs::error::Result {
     let mut encoder = renderer
@@ -174,14 +136,32 @@ pub fn render_frame(
     drop(padded_data);
     renderer.output_buffer.unmap();
 
-    video_encoder.render_frame(&pixels, &mut |_| (0.0, 0.0))?;
+    // write image data
+    let output = format!("{}/{}.png", video_encoder.data_path, video_encoder.frame);
+    png(
+        &output,
+        byte_slice(&pixels),
+        renderer.width,
+        renderer.height,
+    )?;
+    // write sample data
+    // TODO: endianess
+    video_encoder.audio_file.write_all(unsafe {
+        std::slice::from_raw_parts(samples.as_ptr().cast(), samples.len() * 8)
+    })?;
+
+    println!("[LOG] Rendered frame {}", video_encoder.frame);
+    video_encoder.frame += 1;
+
     Ok(())
 }
 
 pub fn finish(
+    mut commands: Commands,
     mut writer: MessageWriter<AppExit>,
-    mut encoder: Single<&mut Encoder>,
+    encoder: Single<(Entity, &mut Encoder)>,
 ) -> bevy_ecs::error::Result {
+    let (entity, mut encoder) = encoder.into_inner();
     encoder.audio_file.flush()?;
     ffmpeg(
         &encoder.data_path,
@@ -189,6 +169,8 @@ pub fn finish(
         encoder.fps,
         encoder.sample_rate,
     )?;
+    // NOTE: Despawn encoder so that another frame isn't rendered.
+    commands.entity(entity).despawn();
     writer.write(AppExit::Success);
     println!(
         "[LOG] Wrote {} bytes to {}",

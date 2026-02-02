@@ -9,8 +9,8 @@ bevy_derive = "0.18.0"
 bevy_ecs = "0.18.0"
 colorgrad = { version = "0.8.0", features = ["preset"] }
 env_logger = "0.11.8"
-hound = "3.5.1"
 png = { version = "0.18.0", features = ["zlib-rs"] }
 pollster = "0.4.0"
+symphonium = { version = "0.7.1", features = ["resampler"] }
 tint = { path = "tint", features = ["std", "serde"] }
 wgpu = "28.0.0"

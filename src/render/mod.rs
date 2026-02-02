@@ -11,16 +11,16 @@ pub mod ssaa;
 pub struct RenderPlugin {
     pub width: usize,
     pub height: usize,
-    pub samples: usize,
+    pub super_samples: usize,
 }
 
 impl Plugin for RenderPlugin {
     fn build(&self, app: &mut bevy_app::App) {
         let width = self.width;
         let height = self.height;
-        let samples = self.samples;
+        let super_samples = self.super_samples;
         let spawn_renderer = move |mut commands: Commands| {
-            commands.spawn(Renderer::new(width, height, samples));
+            commands.spawn(Renderer::new(width, height, super_samples));
         };
 
         app.add_systems(
@@ -175,13 +175,13 @@ pub struct Renderer {
     pub queue: wgpu::Queue,
     pub width: usize,
     pub height: usize,
-    pub samples: usize,
+    pub super_samples: usize,
     pub output_buffer: wgpu::Buffer,
     pub bytes_per_row: usize,
 }
 
 impl Renderer {
-    pub fn new(width: usize, height: usize, samples: usize) -> Self {
+    pub fn new(width: usize, height: usize, super_samples: usize) -> Self {
         env_logger::init();
 
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
@@ -216,7 +216,7 @@ impl Renderer {
             queue,
             width,
             height,
-            samples,
+            super_samples,
             output_buffer,
             bytes_per_row,
         }

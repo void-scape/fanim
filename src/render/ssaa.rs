@@ -1,4 +1,4 @@
-use crate::render::Renderer;
+use crate::{encoder::Encoder, render::Renderer};
 use bevy_ecs::prelude::*;
 
 /// Blits a texture to a render target.
@@ -21,11 +21,15 @@ pub fn spawn(mut commands: Commands, renderer: Single<&Renderer>) {
         wgpu::TextureFormat::Rgba8UnormSrgb,
         renderer.width,
         renderer.height,
-        renderer.samples,
+        renderer.super_samples,
     ));
 }
 
-pub fn render_pass(renderer: Single<&Renderer>, pipeline: Single<&SsaaPipeline>) {
+pub fn render_pass(
+    renderer: Single<&Renderer>,
+    pipeline: Single<&SsaaPipeline>,
+    _enable: Single<&Encoder>,
+) {
     let mut encoder = renderer
         .device
         .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });

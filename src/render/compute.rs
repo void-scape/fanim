@@ -1,7 +1,10 @@
 use super::{Fractal, ssaa::SsaaPipeline};
-use crate::render::{
-    BurningShip, CPlane, ColorScale, EscapeRadius, Exponent, Iterations, Julia, Renderer, Rotation,
-    View, ZPlane, palette::PaletteBindGroup,
+use crate::{
+    encoder::Encoder,
+    render::{
+        BurningShip, CPlane, ColorScale, EscapeRadius, Exponent, Iterations, Julia, Renderer,
+        Rotation, View, ZPlane, palette::PaletteBindGroup,
+    },
 };
 use bevy_ecs::prelude::*;
 
@@ -36,6 +39,8 @@ pub fn compute_pass(
     burning_ship: Single<&BurningShip>,
     c: Single<&CPlane>,
     z: Single<&ZPlane>,
+    //
+    _enable: Single<&Encoder>,
 ) {
     let fractal = Fractal {
         iterations: iterations.0,
