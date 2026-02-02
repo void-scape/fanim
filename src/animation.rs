@@ -157,10 +157,12 @@ fn advance(
 ) {
     let remainder = advance.get(inserted.entity).unwrap().0;
     let (children, parent, is_parallel) = roots.get(inserted.entity).unwrap();
-    if is_parallel && leaves.iter_many(children.iter()).next().is_none() {
-        commands.entity(inserted.entity).insert(Finished);
-        if let Some(parent) = parent {
-            commands.entity(parent.0).insert(Advance(remainder));
+    if is_parallel {
+        if leaves.iter_many(children.iter()).next().is_none() {
+            commands.entity(inserted.entity).insert(Finished);
+            if let Some(parent) = parent {
+                commands.entity(parent.0).insert(Advance(remainder));
+            }
         }
     } else {
         match leaves.iter_many(children.iter()).fetch_next() {

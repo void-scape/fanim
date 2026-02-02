@@ -671,6 +671,7 @@ name = "fanim"
 version = "0.1.0"
 dependencies = [
  "bevy_app",
+ "bevy_derive",
  "bevy_ecs",
  "colorgrad",
  "env_logger",

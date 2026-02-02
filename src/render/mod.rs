@@ -1,5 +1,6 @@
 use crate::animation::{Lerp, LogF32};
 use bevy_app::{Plugin, PostStartup, PostUpdate};
+use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::prelude::*;
 use tint::{Color, Srgb};
 
@@ -28,7 +29,12 @@ impl Plugin for RenderPlugin {
         )
         .add_systems(
             PostUpdate,
-            (compute::compute_pass, ssaa::render_pass).chain(),
+            (
+                palette::write_texture,
+                compute::compute_pass,
+                ssaa::render_pass,
+            )
+                .chain(),
         );
     }
 }
@@ -56,7 +62,7 @@ pub fn default_fractal() -> impl Bundle {
 macro_rules! fractal_component {
     ($name:ident, $type:ty) => {
         crate::lerp_newtype! {
-            #[derive(Clone, Copy, Component)]
+            #[derive(Clone, Copy, Component, Deref, DerefMut)]
             pub struct $name(pub $type);
         }
     };
@@ -133,7 +139,7 @@ impl Lerp for ZPlane {
     }
 }
 
-#[derive(Clone, Component)]
+#[derive(Clone, Component, Deref, DerefMut)]
 pub struct Palette(pub [Srgb; 32]);
 
 impl Lerp for Palette {

@@ -1,11 +1,12 @@
 use bevy_app::{App, PostStartup, Startup};
 use bevy_ecs::prelude::*;
 use fanim::animation::{Active, AnimationSystems};
+use std::f32::consts::PI;
 
 fn main() {
     _ = std::fs::remove_dir_all("data");
     _ = std::fs::create_dir_all("data");
-    let scale = 16;
+    let scale = 64;
 
     App::default()
         .add_plugins((
@@ -89,21 +90,62 @@ fn start_animation(mut commands: Commands, animation: Single<Entity, With<Animat
 
 fn animation(mut commands: Commands) {
     use fanim::animation::*;
-    use fanim::animations;
     use fanim::render::*;
+    use fanim::*;
 
     commands
         .spawn((Animation, AnimationTarget::entity(), default_fractal()))
-        .insert(View {
-            x: 0.0,
-            y: 0.0,
-            z: 1.25,
-        })
+        .insert((
+            View {
+                x: 0.0,
+                y: 0.0,
+                z: 1.25,
+            },
+            CPlane { x: -0.8, y: 0.156 },
+        ))
         .insert(animations![
+            parallel![
+                (
+                    Keyframe(Exponent(4.0)),
+                    Keyframe(Palette(palette::cubehelix_default())),
+                    Keyframe(View {
+                        x: -0.25,
+                        y: 0.0,
+                        z: 1.25
+                    }),
+                    EaseFunction::SineInOut,
+                    Duration(5.0)
+                ),
+                animations![
+                    (Keyframe(Rotation(PI)), EaseFunction::CubicIn, Duration(3.5)),
+                    (
+                        Keyframe(Rotation(PI * 1.5)),
+                        EaseFunction::CubicOut,
+                        Duration(2.0)
+                    )
+                ],
+                animations![
+                    Duration(3.5),
+                    (Keyframe(Julia(1.0)), EaseFunction::SineInOut, Duration(4.0)),
+                ],
+                animations![
+                    Duration(5.0),
+                    (
+                        Keyframe(Palette(palette::viridis())),
+                        Keyframe(View {
+                            x: 0.0,
+                            y: 0.0,
+                            z: 1.25
+                        }),
+                        EaseFunction::SineInOut,
+                        Duration(2.0),
+                    )
+                ]
+            ],
             (
-                Keyframe(Exponent(3.0)),
+                Keyframe(CPlane { x: -0.81, y: 0.166 }),
                 EaseFunction::SineInOut,
-                Duration(5.0)
+                Duration(2.0)
             ),
             (system(fanim::encoder::finish), Duration(0.0))
         ]);

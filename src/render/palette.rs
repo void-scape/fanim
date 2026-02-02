@@ -76,6 +76,7 @@ fn generate_gradient(grad: &impl colorgrad::Gradient) -> [Srgb; 32] {
 #[derive(Component)]
 pub struct PaletteBindGroup {
     pub bind_group: wgpu::BindGroup,
+    texture: wgpu::Texture,
 }
 
 impl PaletteBindGroup {
@@ -138,7 +139,10 @@ impl PaletteBindGroup {
             ],
         });
 
-        Self { bind_group }
+        Self {
+            bind_group,
+            texture,
+        }
     }
 
     pub fn bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
@@ -172,4 +176,30 @@ pub fn spawn(mut commands: Commands, renderer: Single<&Renderer>, palette: Singl
         &renderer.queue,
         &palette.0,
     ));
+}
+
+pub fn write_texture(
+    renderer: Single<&Renderer>,
+    palette: Single<&Palette, Changed<Palette>>,
+    bind_group: Single<&PaletteBindGroup>,
+) {
+    renderer.queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: &bind_group.texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        crate::byte_slice(&palette.0),
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(palette.len() as u32 * 4),
+            rows_per_image: None,
+        },
+        wgpu::Extent3d {
+            width: palette.len() as u32,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+    );
 }
