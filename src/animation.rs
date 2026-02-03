@@ -1,5 +1,8 @@
+use crate::audio::{AudioSystems, LP};
 use bevy_app::{Plugin, PostStartup, Update};
+use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::{component::Mutable, lifecycle::HookContext, prelude::*, world::DeferredWorld};
+use std::{any::TypeId, collections::HashSet};
 
 pub struct AnimationPlugin;
 
@@ -8,6 +11,8 @@ impl Plugin for AnimationPlugin {
         app.add_observer(active)
             .add_observer(advance)
             .add_observer(animation_target)
+            .init_resource::<ScheduledKeyframes>()
+            .init_resource::<ScheduledDeltas>()
             .add_systems(
                 PostStartup,
                 (propagate_animation_target, start_roots).chain(),
@@ -22,7 +27,10 @@ impl Plugin for AnimationPlugin {
 
         app.configure_sets(
             Update,
-            AnimationSystems::Step.after(AnimationSystems::Interpolate),
+            (
+                AnimationSystems::Step.after(AnimationSystems::Interpolate),
+                AnimationSystems::Interpolate.in_set(AudioSystems::Filters),
+            ),
         );
     }
 }
@@ -109,15 +117,19 @@ fn end<T: Component<Mutability = Mutable> + Lerp + Clone>(
     added: On<Add, Finished>,
     animations: Query<(&AnimationTarget, &Keyframe<T>)>,
     mut targets: Query<&mut T>,
+    mut lp_targets: Query<&mut LP<T>>,
 ) {
     if let Ok((target, keyframe)) = animations.get(added.entity) {
-        let Ok(mut component) = targets.get_mut(target.0) else {
+        if let Ok(mut component) = targets.get_mut(target.0) {
+            *component = keyframe.0.clone();
+        } else if let Ok(mut component) = lp_targets.get_mut(target.0) {
+            **component = keyframe.0.clone();
+        } else {
             panic!(
                 "animation target does not have component {}",
                 std::any::type_name::<T>()
             );
-        };
-        *component = keyframe.0.clone();
+        }
     }
 }
 
@@ -244,21 +256,30 @@ fn one_shot_system(
 #[component(on_insert = schedule_keyframe::<T>)]
 pub struct Keyframe<T: Component<Mutability = Mutable> + Lerp + Clone>(pub T);
 
+#[derive(Default, Resource, Deref, DerefMut)]
+struct ScheduledKeyframes(HashSet<TypeId>);
+
 fn schedule_keyframe<T: Component<Mutability = Mutable> + Lerp + Clone>(
     mut world: DeferredWorld,
     _: HookContext,
 ) {
     world.commands().queue(|world: &mut World| {
-        world.add_observer(start::<T>);
-        world.add_observer(end::<T>);
-        world.schedule_scope(Update, |_, schedule| {
-            schedule.add_systems(keyframe::<T>.in_set(AnimationSystems::Interpolate));
-        });
+        if world
+            .resource_mut::<ScheduledKeyframes>()
+            .insert(TypeId::of::<T>())
+        {
+            world.add_observer(start::<T>);
+            world.add_observer(end::<T>);
+            world.schedule_scope(Update, |_, schedule| {
+                schedule.add_systems(keyframe::<T>.in_set(AnimationSystems::Interpolate));
+            });
+        }
     });
 }
 
 fn keyframe<T: Component<Mutability = Mutable> + Lerp + Clone>(
     mut targets: Query<&mut T>,
+    mut lp_targets: Query<&mut LP<T>>,
     animations: Query<
         (
             &AnimationTarget,
@@ -272,17 +293,90 @@ fn keyframe<T: Component<Mutability = Mutable> + Lerp + Clone>(
     >,
 ) {
     for (target, start, end, playhead, duration, ease) in animations.iter() {
-        let Ok(mut component) = targets.get_mut(target.0) else {
+        if let Ok(mut component) = targets.get_mut(target.0) {
+            let mut t = (playhead.0 / duration.0).clamp(0.0, 1.0);
+            if let Some(ease) = ease {
+                t = ease.eval(t);
+            }
+            *component = start.0.lerp(&end.0, t);
+        } else if let Ok(mut component) = lp_targets.get_mut(target.0) {
+            let mut t = (playhead.0 / duration.0).clamp(0.0, 1.0);
+            if let Some(ease) = ease {
+                t = ease.eval(t);
+            }
+            **component = start.0.lerp(&end.0, t);
+        } else {
             panic!(
                 "animation target does not have component {}",
                 std::any::type_name::<T>()
             );
-        };
-        let mut t = (playhead.0 / duration.0).clamp(0.0, 1.0);
-        if let Some(ease) = ease {
-            t = ease.eval(t);
         }
-        *component = start.0.lerp(&end.0, t);
+    }
+}
+
+#[derive(Component)]
+#[component(on_insert = schedule_delta::<T>)]
+pub struct Delta<T: Component<Mutability = Mutable> + std::ops::Add<Output = T> + Lerp + Clone>(
+    pub T,
+);
+
+#[derive(Default, Resource, Deref, DerefMut)]
+struct ScheduledDeltas(HashSet<TypeId>);
+
+fn schedule_delta<T: Component<Mutability = Mutable> + std::ops::Add<Output = T> + Lerp + Clone>(
+    mut world: DeferredWorld,
+    _: HookContext,
+) {
+    world.commands().queue(|world: &mut World| {
+        if world
+            .resource_mut::<ScheduledDeltas>()
+            .insert(TypeId::of::<T>())
+        {
+            // TODO: doubling start here with keyframes
+            world.add_observer(start::<T>);
+            world.schedule_scope(Update, |_, schedule| {
+                schedule.add_systems(delta::<T>.in_set(AnimationSystems::Interpolate));
+            });
+        }
+    });
+}
+
+fn delta<T: Component<Mutability = Mutable> + std::ops::Add<Output = T> + Lerp + Clone>(
+    mut targets: Query<&mut T>,
+    mut lp_targets: Query<&mut LP<T>>,
+    animations: Query<
+        (
+            &AnimationTarget,
+            &Start<T>,
+            &Delta<T>,
+            &Playhead,
+            &Duration,
+            Option<&EaseFunction>,
+        ),
+        With<Active>,
+    >,
+) {
+    for (target, start, delta, playhead, duration, ease) in animations.iter() {
+        if let Ok(mut component) = targets.get_mut(target.0) {
+            let mut t = (playhead.0 / duration.0).clamp(0.0, 1.0);
+            if let Some(ease) = ease {
+                t = ease.eval(t);
+            }
+            let end = delta.0.clone().add(start.0.clone());
+            *component = start.0.lerp(&end, t);
+        } else if let Ok(mut component) = lp_targets.get_mut(target.0) {
+            let mut t = (playhead.0 / duration.0).clamp(0.0, 1.0);
+            if let Some(ease) = ease {
+                t = ease.eval(t);
+            }
+            let end = delta.0.clone().add(start.0.clone());
+            **component = start.0.lerp(&end, t);
+        } else {
+            panic!(
+                "animation target does not have component {}",
+                std::any::type_name::<T>()
+            );
+        }
     }
 }
 
@@ -294,6 +388,7 @@ fn start<T: Component + Clone>(
     mut commands: Commands,
     targets: Query<&AnimationTarget>,
     components: Query<&T>,
+    lp_components: Query<&LP<T>>,
 ) {
     if let Ok(target) = targets.get(inserted.entity) {
         match components.get(target.0) {
@@ -302,12 +397,19 @@ fn start<T: Component + Clone>(
                     .entity(inserted.entity)
                     .insert(Start(current.clone()));
             }
-            Err(_) => {
-                panic!(
-                    "animation target does not have component {}",
-                    std::any::type_name::<T>()
-                );
-            }
+            Err(_) => match lp_components.get(target.0) {
+                Ok(current) => {
+                    commands
+                        .entity(inserted.entity)
+                        .insert(Start((*current).clone()));
+                }
+                Err(_) => {
+                    panic!(
+                        "animation target does not have component {}",
+                        std::any::type_name::<T>()
+                    );
+                }
+            },
         }
     }
 }
@@ -370,6 +472,12 @@ macro_rules! lerp_newtype {
         impl $crate::animation::Lerp for $name {
             fn lerp(&self, rhs: &Self, t: f32) -> Self {
                 $name(self.0.lerp(&rhs.0, t))
+            }
+        }
+        impl std::ops::Add for $name {
+            type Output = $name;
+            fn add(self, rhs: Self) -> Self::Output {
+                $name(self.0 + rhs.0)
             }
         }
     };

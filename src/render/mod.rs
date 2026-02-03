@@ -55,14 +55,14 @@ pub fn default_fractal() -> impl Bundle {
         BurningShip(0.0),
         CPlane { x: 0.0, y: 0.0 },
         ZPlane { x: 0.0, y: 0.0 },
-        Palette(palette::magma()),
+        palette::magma(),
     )
 }
 
 macro_rules! fractal_component {
     ($name:ident, $type:ty) => {
         crate::lerp_newtype! {
-            #[derive(Clone, Copy, Component, Deref, DerefMut)]
+            #[derive(Debug, Clone, Copy, Component, Deref, DerefMut)]
             pub struct $name(pub $type);
         }
     };
@@ -75,13 +75,6 @@ fractal_component!(Exponent, f32);
 fractal_component!(Rotation, f32);
 fractal_component!(Julia, f32);
 fractal_component!(BurningShip, f32);
-fractal_component!(Y, f32);
-fractal_component!(X, f32);
-fractal_component!(Z, f32);
-fractal_component!(Cx, f32);
-fractal_component!(Cy, f32);
-fractal_component!(Zx, f32);
-fractal_component!(Zy, f32);
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Component)]
@@ -107,6 +100,17 @@ impl Lerp for View {
     }
 }
 
+impl std::ops::Add for View {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self::Output {
+        Self {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+            z: self.z + rhs.z,
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Component)]
 pub struct CPlane {
@@ -123,6 +127,16 @@ impl Lerp for CPlane {
     }
 }
 
+impl std::ops::Add for CPlane {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self::Output {
+        Self {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Component)]
 pub struct ZPlane {
@@ -135,6 +149,16 @@ impl Lerp for ZPlane {
         Self {
             x: self.x.lerp(&rhs.x, t),
             y: self.y.lerp(&rhs.y, t),
+        }
+    }
+}
+
+impl std::ops::Add for ZPlane {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self::Output {
+        Self {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
         }
     }
 }

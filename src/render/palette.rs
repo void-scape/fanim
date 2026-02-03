@@ -9,8 +9,8 @@ macro_rules! palette_builder {
     ($($palette:ident,)*) => {
         $(
             #[allow(unused)]
-            pub fn $palette() -> [Srgb; 32] {
-                generate_gradient(&colorgrad::preset::$palette())
+            pub fn $palette() -> Palette {
+                gradient_palette(&colorgrad::preset::$palette())
             }
         )*
     };
@@ -57,7 +57,7 @@ palette_builder!(
     yl_or_rd,
 );
 
-fn generate_gradient(grad: &impl colorgrad::Gradient) -> [Srgb; 32] {
+pub fn gradient_palette(grad: &impl colorgrad::Gradient) -> Palette {
     let mut palette = [Srgb::default(); 32];
     let samples = 16;
     let mut i = 0;
@@ -73,7 +73,7 @@ fn generate_gradient(grad: &impl colorgrad::Gradient) -> [Srgb; 32] {
         palette[i] = Srgb::new(r, g, b, 255);
         i += 1;
     }
-    palette
+    Palette(palette)
 }
 
 #[derive(Component)]

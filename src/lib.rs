@@ -14,7 +14,7 @@ pub mod prelude {
     pub use super::audio::*;
     pub use super::encoder::*;
     pub use super::render::*;
-    pub use super::{animations, parallel};
+    pub use super::{animations, lerp_newtype, lp_newtype, parallel};
 }
 
 pub struct FanimPlugin {

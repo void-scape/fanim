@@ -4,7 +4,7 @@ use crate::{
     byte_slice,
     render::{Renderer, ssaa::SsaaPipeline},
 };
-use bevy_app::{AppExit, Last, Plugin, PostStartup};
+use bevy_app::{AppExit, Last, Plugin, PreStartup};
 use bevy_ecs::prelude::*;
 use std::{
     fs::File,
@@ -43,7 +43,7 @@ impl Plugin for EncoderPlugin {
             commands.spawn(SampleRate(sample_rate));
             Ok(())
         };
-        app.add_systems(PostStartup, spawn_encoder)
+        app.add_systems(PreStartup, spawn_encoder)
             .add_systems(Last, render_frame);
     }
 }
