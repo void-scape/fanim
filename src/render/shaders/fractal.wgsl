@@ -15,7 +15,8 @@ struct Fractal {
 	cy: f32,
 	zx: f32,
 	zy: f32,
-	_pad: vec2<u32>,
+	color_rotation: f32,
+	_pad: u32,
 }
 
 @group(0) @binding(0) var output: texture_storage_2d<rgba32float, write>;
@@ -98,7 +99,7 @@ fn color(iteration: u32, z: vec2<f32>) -> vec4<f32> {
         let nu = log2(log2(zn) * 0.5) / log2(args.exponent);
         iter = f32(iteration) + 1.0 - nu;
     }
-    let uv = vec2(iter * args.color_scale / PALETTE_LEN, 0.5);
+    let uv = vec2(iter * args.color_scale / PALETTE_LEN + args.rotation * args.color_rotation, 0.5);
     let rgb = textureSampleLevel(palette, palette_sampler, uv, 0.0).rgb;
     return vec4(rgb, 1.0);
 }

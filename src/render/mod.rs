@@ -53,6 +53,7 @@ pub fn default_fractal() -> impl Bundle {
         Rotation(0.0),
         Julia(0.0),
         BurningShip(0.0),
+        ColorRotation(0.0),
         CPlane { x: 0.0, y: 0.0 },
         ZPlane { x: 0.0, y: 0.0 },
         palette::magma(),
@@ -75,6 +76,7 @@ fractal_component!(Exponent, f32);
 fractal_component!(Rotation, f32);
 fractal_component!(Julia, f32);
 fractal_component!(BurningShip, f32);
+fractal_component!(ColorRotation, f32);
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Component)]
@@ -189,8 +191,8 @@ struct Fractal {
     burning_ship: f32,
     c: CPlane,
     z: ZPlane,
-    pad1: u32,
-    pad2: u32,
+    color_rotation: f32,
+    pad: u32,
 }
 
 #[derive(Component)]

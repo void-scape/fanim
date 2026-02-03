@@ -1,12 +1,8 @@
 use super::{Fractal, ssaa::SsaaPipeline};
 use crate::{
     encoder::Encoder,
-    render::{
-        BurningShip, CPlane, ColorScale, EscapeRadius, Exponent, Iterations, Julia, Renderer,
-        Rotation, View, ZPlane, palette::PaletteBindGroup,
-    },
+    render::{palette::PaletteBindGroup, *},
 };
-use bevy_ecs::prelude::*;
 
 /// Perform iterative mandelbrot computation in a compute shader.
 ///
@@ -39,6 +35,7 @@ pub fn compute_pass(
     burning_ship: Single<&BurningShip>,
     c: Single<&CPlane>,
     z: Single<&ZPlane>,
+    color_rotation: Single<&ColorRotation>,
     //
     _enable: Single<&Encoder>,
 ) {
@@ -53,8 +50,8 @@ pub fn compute_pass(
         burning_ship: burning_ship.0,
         c: **c,
         z: **z,
-        pad1: 0,
-        pad2: 0,
+        color_rotation: color_rotation.0,
+        pad: 0,
     };
     renderer
         .queue
