@@ -698,6 +698,7 @@ dependencies = [
  "env_logger",
  "png",
  "pollster",
+ "rustfft",
  "symphonium",
  "tint",
  "wgpu",

@@ -41,7 +41,7 @@ pub enum AnimationSystems {
     Step,
 }
 
-#[derive(Component)]
+#[derive(Component, Deref)]
 #[component(immutable)]
 pub struct DeltaTime(pub f32);
 

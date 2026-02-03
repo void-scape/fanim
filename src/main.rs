@@ -2,6 +2,7 @@ use bevy_app::{App, Startup};
 use bevy_ecs::prelude::*;
 use colorgrad::{Color, GradientBuilder};
 use fanim::prelude::*;
+use rustfft::{FftPlanner, num_complex::Complex};
 
 fn main() {
     _ = std::fs::remove_dir_all("data");
@@ -31,24 +32,60 @@ fn main() {
         .unwrap();
 }
 
-// Implementation from fundsp:
-// https://github.com/SamiPerttu/fundsp/blob/3f867aa05315d9a029419c7e680879aef0bc24b1/src/dynamics.rs#L336
-#[derive(Component)]
+#[derive(Default, Component)]
 struct Peak {
-    smoothing: f32,
-    state: f32,
+    max: f32,
 }
 
 impl Peak {
-    pub fn new(sample_rate: SampleRate, timescale: f32) -> Self {
+    pub fn process(&mut self, sample: f32) {
+        self.max = self.max.max(sample.abs());
+    }
+}
+
+#[derive(Component)]
+struct FrequencyAnalyzer {
+    planner: FftPlanner<f32>,
+    buffer: Vec<Complex<f32>>,
+    bass: f32,
+    mid: f32,
+    high: f32,
+}
+
+impl FrequencyAnalyzer {
+    pub fn new(size: usize) -> Self {
         Self {
-            smoothing: 0.5f32.powf(1.0 / (timescale * *sample_rate as f32)),
-            state: 0.0,
+            planner: FftPlanner::new(),
+            buffer: vec![Complex::new(0.0, 0.0); size],
+            bass: 0.0,
+            mid: 0.0,
+            high: 0.0,
         }
     }
 
-    pub fn process(&mut self, sample: f32) {
-        self.state = (self.state * self.smoothing).max(sample.abs());
+    pub fn process(&mut self, samples: &[(f32, f32)]) {
+        for (i, (l, r)) in samples.iter().enumerate().take(self.buffer.len()) {
+            let mono = (l + r) / 2.0;
+            self.buffer[i] = Complex::new(mono, 0.0);
+        }
+        for i in samples.len()..self.buffer.len() {
+            self.buffer[i] = Complex::new(0.0, 0.0);
+        }
+        let fft = self.planner.plan_fft_forward(self.buffer.len());
+        fft.process(&mut self.buffer);
+        let bass_end = self.buffer.len() / 16;
+        let mid_end = self.buffer.len() / 3;
+        self.bass = self.band_energy(0, bass_end);
+        self.mid = self.band_energy(bass_end, mid_end);
+        self.high = self.band_energy(mid_end, self.buffer.len() / 2);
+    }
+
+    fn band_energy(&self, start: usize, end: usize) -> f32 {
+        let sum = self.buffer[start..end]
+            .iter()
+            .map(|c| c.norm())
+            .sum::<f32>();
+        sum / (end - start) as f32
     }
 }
 
@@ -69,25 +106,36 @@ pub fn blood_red() -> Palette {
 }
 
 fn palette_peak(
-    // mut palette: Single<&mut Palette>,
+    mut palette: Single<&mut Palette>,
     mut color_scale: Single<&mut ColorScale>,
     mut rotation: Single<&mut Rotation>,
-    mut peak: Single<&mut Peak>,
+    analyzer: Single<(&mut FrequencyAnalyzer, &mut LowPass)>,
+    peak: Single<(&mut Peak, &mut LowPass), Without<FrequencyAnalyzer>>,
     samples: Single<&Samples>,
+    delta: Single<&DeltaTime>,
 ) {
+    let (mut analyzer, mut analyzer_lp) = analyzer.into_inner();
+    analyzer.process(samples.as_slice());
+    let p1 = blood_red();
+    let p2 = palette::cubehelix_default();
+    **palette = p1.lerp(&p2, analyzer_lp.process(analyzer.high.clamp(0.0, 1.0)));
+
+    let (mut peak, mut peak_lp) = peak.into_inner();
     for (l, r) in samples.iter() {
         peak.process((*l + *r) / 2.0);
     }
-    // let p1 = palette::magma();
-    // let p2 = palette::cubehelix_default();
-    // **palette = p1.lerp(&p2, (peak.state * 5.0).clamp(0.0, 1.0));
-    ***color_scale = peak.state * 3.0;
-    ***rotation += peak.state / 5.0;
+    let peak = peak_lp.process(peak.max);
+    ***color_scale = peak * 3.0;
+    ***rotation += peak * ***delta;
 }
 
 fn spawn_animation(mut commands: Commands, sample_rate: Single<&SampleRate>) {
     commands.spawn(AudioPlayer::new("assets/bleed.mp3"));
-    commands.spawn(Peak::new(**sample_rate, 1.0));
+    commands.spawn((
+        FrequencyAnalyzer::new(2048),
+        LowPass::new(100.0, **sample_rate),
+    ));
+    commands.spawn((Peak::default(), LowPass::new(100.0, **sample_rate)));
     let target = commands
         .spawn(default_fractal())
         .insert((
@@ -105,7 +153,7 @@ fn spawn_animation(mut commands: Commands, sample_rate: Single<&SampleRate>) {
 
     commands.spawn(AnimationTarget(target)).insert(animations![
         parallel![
-            (system(palette_peak), Duration(20.0)),
+            (system(palette_peak), Duration(28.0)),
             animations![
                 (
                     Keyframe(View {
@@ -125,7 +173,16 @@ fn spawn_animation(mut commands: Commands, sample_rate: Single<&SampleRate>) {
                     Duration(2.0)
                 ),
                 (
-                    Delta(CPlane { x: 0.15, y: 0.0 }),
+                    Keyframe(Exponent(3.0)),
+                    EaseFunction::SineInOut,
+                    Duration(6.0)
+                ),
+                (
+                    Keyframe(CPlane {
+                        x: -0.7269,
+                        y: 0.1889,
+                    }),
+                    // Keyframe(Exponent(2.5)),
                     EaseFunction::SineInOut,
                     Duration(6.0)
                 )
