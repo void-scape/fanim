@@ -33,6 +33,29 @@ fn main() {
 }
 
 #[derive(Default, Component)]
+struct Rms {
+    smoothing: f32,
+    state: f32,
+}
+
+impl Rms {
+    pub fn new(sample_rate: SampleRate, timescale: f32) -> Self {
+        Self {
+            smoothing: 0.5f32.powf(1.0 / (timescale * *sample_rate as f32)),
+            state: 0.0,
+        }
+    }
+
+    pub fn process(&mut self, sample: f32) {
+        self.state = self.state * self.smoothing + sample * sample * (1.0 - self.smoothing);
+    }
+
+    pub fn sample(&self) -> f32 {
+        self.state.sqrt()
+    }
+}
+
+#[derive(Default, Component)]
 struct Peak {
     max: f32,
 }
@@ -105,9 +128,19 @@ pub fn blood_red() -> Palette {
     palette::gradient_palette(&blood)
 }
 
+fn color_scale_rms(
+    mut color_scale: Single<&mut ColorScale>,
+    mut rms: Single<&mut Rms>,
+    samples: Single<&Samples>,
+) {
+    for (l, r) in samples.iter() {
+        rms.process((*l + *r) / 2.0);
+    }
+    ***color_scale = rms.sample() * 10.0;
+}
+
 fn palette_peak(
     mut palette: Single<&mut Palette>,
-    mut color_scale: Single<&mut ColorScale>,
     mut rotation: Single<&mut Rotation>,
     analyzer: Single<(&mut FrequencyAnalyzer, &mut LowPass)>,
     peak: Single<(&mut Peak, &mut LowPass), Without<FrequencyAnalyzer>>,
@@ -125,7 +158,7 @@ fn palette_peak(
         peak.process((*l + *r) / 2.0);
     }
     let peak = peak_lp.process(peak.max);
-    ***color_scale = peak * 3.0;
+    // ***color_scale = peak * 3.0;
     ***rotation += peak * ***delta;
 }
 
@@ -135,6 +168,7 @@ fn spawn_animation(mut commands: Commands, sample_rate: Single<&SampleRate>) {
         FrequencyAnalyzer::new(2048),
         LowPass::new(100.0, **sample_rate),
     ));
+    commands.spawn(Rms::new(**sample_rate, 0.1));
     commands.spawn((Peak::default(), LowPass::new(100.0, **sample_rate)));
     let target = commands
         .spawn(default_fractal())
@@ -153,6 +187,7 @@ fn spawn_animation(mut commands: Commands, sample_rate: Single<&SampleRate>) {
 
     commands.spawn(AnimationTarget(target)).insert(animations![
         parallel![
+            (system(color_scale_rms), Duration(28.0)),
             (system(palette_peak), Duration(28.0)),
             animations![
                 (
@@ -169,6 +204,7 @@ fn spawn_animation(mut commands: Commands, sample_rate: Single<&SampleRate>) {
                     Keyframe(Julia(1.0)),
                     Keyframe(BurningShip(0.0)),
                     Keyframe(Exponent(4.0)),
+                    // Keyframe(ColorScale(1.0)),
                     EaseFunction::ExponentialInOut,
                     Duration(2.0)
                 ),
