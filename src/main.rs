@@ -9,7 +9,7 @@ fn main() {
     _ = std::fs::create_dir_all("data");
 
     let hq = false;
-    let (scale, super_samples, fps) = if hq { (160, 2, 60) } else { (32, 1, 10) };
+    let (scale, super_samples, fps) = if hq { (160, 2, 60) } else { (32, 1, 60) };
     App::default()
         .add_plugins(fanim::FanimPlugin {
             width: 16 * scale,
@@ -128,6 +128,17 @@ pub fn blood_red() -> Palette {
     palette::gradient_palette(&blood)
 }
 
+fn iterations_rms(
+    mut iterations: Single<&mut Iterations>,
+    mut rms: Single<&mut Rms>,
+    samples: Single<&Samples>,
+) {
+    for (l, r) in samples.iter() {
+        rms.process((*l + *r) / 2.0);
+    }
+    ***iterations = (rms.sample() * 1_000.0) as u32;
+}
+
 fn color_scale_rms(
     mut color_scale: Single<&mut ColorScale>,
     mut rms: Single<&mut Rms>,
@@ -136,7 +147,7 @@ fn color_scale_rms(
     for (l, r) in samples.iter() {
         rms.process((*l + *r) / 2.0);
     }
-    ***color_scale = rms.sample() * 10.0;
+    ***color_scale = rms.sample() * 50.0;
 }
 
 fn palette_peak(
@@ -151,7 +162,8 @@ fn palette_peak(
     analyzer.process(samples.as_slice());
     let p1 = blood_red();
     let p2 = palette::cubehelix_default();
-    **palette = p1.lerp(&p2, analyzer_lp.process(analyzer.high.clamp(0.0, 1.0)));
+    let p = analyzer_lp.process((analyzer.high * 10.0 - analyzer.bass * 0.25).clamp(0.0, 1.0));
+    **palette = p1.lerp(&p2, p);
 
     let (mut peak, mut peak_lp) = peak.into_inner();
     for (l, r) in samples.iter() {
@@ -168,7 +180,7 @@ fn spawn_animation(mut commands: Commands, sample_rate: Single<&SampleRate>) {
         FrequencyAnalyzer::new(2048),
         LowPass::new(100.0, **sample_rate),
     ));
-    commands.spawn(Rms::new(**sample_rate, 0.1));
+    commands.spawn(Rms::new(**sample_rate, 0.01));
     commands.spawn((Peak::default(), LowPass::new(100.0, **sample_rate)));
     let target = commands
         .spawn(default_fractal())
@@ -179,7 +191,7 @@ fn spawn_animation(mut commands: Commands, sample_rate: Single<&SampleRate>) {
             View {
                 x: 0.0,
                 y: 0.0,
-                z: 8.25,
+                z: 16.0,
             },
             CPlane { x: -0.4, y: 0.6 },
         ))
@@ -187,41 +199,60 @@ fn spawn_animation(mut commands: Commands, sample_rate: Single<&SampleRate>) {
 
     commands.spawn(AnimationTarget(target)).insert(animations![
         parallel![
-            (system(color_scale_rms), Duration(28.0)),
+            (system(iterations_rms), Duration(10.0)),
             (system(palette_peak), Duration(28.0)),
             animations![
                 (
                     Keyframe(View {
                         x: 0.0,
                         y: 0.0,
-                        z: 1.25,
+                        z: 2.0,
                     }),
-                    Keyframe(Exponent(5.0)),
-                    EaseFunction::SineInOut,
+                    EaseFunction::SineIn,
                     Duration(9.0)
                 ),
                 (
-                    Keyframe(Julia(1.0)),
-                    Keyframe(BurningShip(0.0)),
-                    Keyframe(Exponent(4.0)),
-                    // Keyframe(ColorScale(1.0)),
-                    EaseFunction::ExponentialInOut,
+                    Keyframe(View {
+                        x: 0.0,
+                        y: 0.0,
+                        z: 1.25,
+                    }),
+                    EaseFunction::SineOut,
                     Duration(2.0)
                 ),
-                (
-                    Keyframe(Exponent(3.0)),
-                    EaseFunction::SineInOut,
-                    Duration(6.0)
-                ),
-                (
-                    Keyframe(CPlane {
-                        x: -0.7269,
-                        y: 0.1889,
-                    }),
-                    // Keyframe(Exponent(2.5)),
-                    EaseFunction::SineInOut,
-                    Duration(6.0)
-                )
+            ],
+            parallel![
+                (system(iterations_rms), Duration(9.0)),
+                animations![
+                    (
+                        Keyframe(Exponent(5.0)),
+                        EaseFunction::SineInOut,
+                        Duration(9.0)
+                    ),
+                    (
+                        Keyframe(Julia(1.0)),
+                        Keyframe(BurningShip(0.0)),
+                        Keyframe(Exponent(4.0)),
+                        Keyframe(ColorScale(1.0)),
+                        EaseFunction::ExponentialInOut,
+                        Duration(2.0)
+                    ),
+                    (
+                        Keyframe(ColorScale(0.005)),
+                        Keyframe(Exponent(3.0)),
+                        EaseFunction::SineInOut,
+                        Duration(6.0)
+                    ),
+                    (
+                        Keyframe(ColorScale(1.25)),
+                        Keyframe(CPlane {
+                            x: -0.7269,
+                            y: 0.1889,
+                        }),
+                        EaseFunction::SineInOut,
+                        Duration(6.0)
+                    )
+                ]
             ]
         ],
         (system(fanim::encoder::finish), Duration(0.0))
