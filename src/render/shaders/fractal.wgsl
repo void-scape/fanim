@@ -16,11 +16,16 @@ struct Fractal {
 	zx: f32,
 	zy: f32,
 	color_rotation: f32,
-	_pad: u32,
+	buddha: f32,
+	mandelbrot: f32,
+	buddha_samples: u32,
 }
 
-@group(0) @binding(0) var output: texture_storage_2d<rgba32float, write>;
+@group(0) @binding(0) var mandelbrot: texture_storage_2d<rgba32float, write>;
 @group(0) @binding(1) var<uniform> args: Fractal;
+
+@group(0) @binding(2) var<storage, read_write> buddha_iterations: array<atomic<u32>>;
+@group(0) @binding(3) var buddha: texture_storage_2d<rgba32float, write>;
 
 @group(1) @binding(0) var palette: texture_2d<f32>;
 @group(1) @binding(1) var palette_sampler: sampler;
@@ -39,8 +44,76 @@ fn c_pow(z: vec2<f32>, n: f32) -> vec2<f32> {
 }
 
 @compute @workgroup_size(16, 16)
-fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-    let sz = textureDimensions(output);
+fn compute_buddha(@builtin(global_invocation_id) id: vec3<u32>) {
+    let sz = textureDimensions(buddha);
+    if (id.x >= sz.x * args.buddha_samples || id.y >= sz.y * args.buddha_samples) {
+        return;
+    }
+    let width = f32(sz.x);
+    let height = f32(sz.y);
+    let x = f32(id.x);
+    let y = f32(id.y);
+    let aspect = width / height;
+
+    let px0 = (x / width / f32(args.buddha_samples) * 2.0 - 1.0) * args.z;
+    let py0 = (y / height / f32(args.buddha_samples) * 2.0 - 1.0) * args.z;
+    let point = vec2(px0 * aspect, py0);
+    
+    let rot = vec2(cos(args.rotation), sin(args.rotation));
+    let rotated = c_mul(point, rot);
+
+    let x0 = rotated.x + args.x;
+    let y0 = rotated.y + args.y;
+
+	// do the loop once, determine if it escapes
+	let tc = vec2(x0, y0);
+	var tz = vec2(0.0, 0.0);
+    var titeration: u32 = 0;
+    while dot(tz, tz) < args.escape_radius * args.escape_radius && titeration < args.iterations {
+        titeration++;
+		tz = c_mul(tz, tz) + tc;
+    }
+	if titeration == args.iterations {
+		return;
+	}
+
+	let c = vec2(x0, y0);
+	var z = vec2(0.0, 0.0);
+    var iteration: u32 = 0;
+
+    while dot(z, z) < args.escape_radius * args.escape_radius && iteration < args.iterations {
+        iteration++;
+		z = c_mul(z, z) + c;
+
+		// need to undo all of the transformations to index into the storage buffer
+        let zt = vec2(z.x - args.x, z.y - args.y);
+        let zr = c_mul(zt, vec2(cos(-args.rotation), sin(-args.rotation)));
+        let zn = vec2(zr.x / aspect, zr.y);
+        
+        let px = (zn.x / args.z + 1.0) * width / 2.0;
+        let py = (zn.y / args.z + 1.0) * height / 2.0;
+
+		if px >= 0.0 && px < width && py >= 0.0 && py < height {
+			let index = u32(py) * sz.x + u32(px);
+			atomicAdd(&buddha_iterations[index], 1);
+		}
+    }
+}
+
+@compute @workgroup_size(16, 16)
+fn render_buddha(@builtin(global_invocation_id) id: vec3<u32>) {
+    let sz = textureDimensions(buddha);
+    if (id.x >= sz.x || id.y >= sz.y) {
+        return;
+    }
+	let i = atomicLoad(&buddha_iterations[id.y * sz.x + id.x]);
+	let l = f32(i) / 100000.0;
+    textureStore(buddha, vec2(id.xy), vec4(l, l, l, 1.0));
+}
+
+@compute @workgroup_size(16, 16)
+fn render_mandelbrot(@builtin(global_invocation_id) id: vec3<u32>) {
+    let sz = textureDimensions(mandelbrot);
     if (id.x >= sz.x || id.y >= sz.y) {
         return;
     }
@@ -81,7 +154,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         }
         iteration++;
     }
-    textureStore(output, vec2(id.xy), color(iteration, z));
+    textureStore(mandelbrot, vec2(id.xy), vec4(color(iteration, z).rgb, args.mandelbrot));
 }
 
 fn color(iteration: u32, z: vec2<f32>) -> vec4<f32> {

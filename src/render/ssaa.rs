@@ -1,15 +1,12 @@
 use crate::{encoder::Encoder, render::Renderer};
 use bevy_ecs::prelude::*;
 
-/// Blits a texture to a render target.
-///
-/// If the texture happens to be higher resolution than the render target,
-/// then this operation performs supersampling.
 #[derive(Component)]
 pub struct SsaaPipeline {
     pipeline: wgpu::RenderPipeline,
     bind_group: wgpu::BindGroup,
-    src_view: wgpu::TextureView,
+    mandelbrot: wgpu::TextureView,
+    buddha: wgpu::TextureView,
     dst: wgpu::Texture,
     dst_view: wgpu::TextureView,
     samples: usize,
@@ -97,13 +94,23 @@ impl SsaaPipeline {
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
                     visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
             ],
         });
 
-        let src_desc = wgpu::TextureDescriptor {
+        let mandelbrot_desc = wgpu::TextureDescriptor {
             size: wgpu::Extent3d {
                 width: (width * samples) as u32,
                 height: (height * samples) as u32,
@@ -117,8 +124,27 @@ impl SsaaPipeline {
             label: None,
             view_formats: &[],
         };
-        let src = device.create_texture(&src_desc);
-        let src_view = src.create_view(&Default::default());
+        let mandelbrot = device
+            .create_texture(&mandelbrot_desc)
+            .create_view(&Default::default());
+
+        let buddha_desc = wgpu::TextureDescriptor {
+            size: wgpu::Extent3d {
+                width: width as u32,
+                height: height as u32,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba32Float,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
+            label: None,
+            view_formats: &[],
+        };
+        let buddha = device
+            .create_texture(&buddha_desc)
+            .create_view(&Default::default());
 
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             mag_filter: wgpu::FilterMode::Linear,
@@ -131,10 +157,14 @@ impl SsaaPipeline {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&src_view),
+                    resource: wgpu::BindingResource::TextureView(&mandelbrot),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&buddha),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
                     resource: wgpu::BindingResource::Sampler(&sampler),
                 },
             ],
@@ -171,7 +201,8 @@ impl SsaaPipeline {
         Self {
             pipeline,
             bind_group,
-            src_view,
+            mandelbrot,
+            buddha,
             dst,
             dst_view,
             samples,
@@ -182,12 +213,14 @@ impl SsaaPipeline {
         self.samples
     }
 
-    /// Texture view that the mandelbrot should be rendered to.
-    pub fn render_target(&self) -> &wgpu::TextureView {
-        &self.src_view
+    pub fn mandelbrot_render_target(&self) -> &wgpu::TextureView {
+        &self.mandelbrot
     }
 
-    /// Texture that contains the final mandelbrot render.
+    pub fn buddha_render_target(&self) -> &wgpu::TextureView {
+        &self.buddha
+    }
+
     pub fn output_texture(&self) -> &wgpu::Texture {
         &self.dst
     }

@@ -3,6 +3,12 @@ name = "fanim"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "bleed"
+
+[[bin]]
+name = "buddha"
+
 [dependencies]
 bevy_app = "0.18.0"
 bevy_derive = "0.18.0"

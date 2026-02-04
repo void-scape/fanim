@@ -2,14 +2,13 @@ use bevy_app::{App, Startup};
 use bevy_ecs::prelude::*;
 use colorgrad::{Color, GradientBuilder};
 use fanim::prelude::*;
-use rustfft::{FftPlanner, num_complex::Complex};
 
 fn main() {
     _ = std::fs::remove_dir_all("data");
     _ = std::fs::create_dir_all("data");
 
     let hq = false;
-    let (scale, super_samples, fps) = if hq { (160, 2, 60) } else { (32, 1, 30) };
+    let (scale, super_samples, fps) = if hq { (160, 2, 60) } else { (32, 1, 10) };
     App::default()
         .add_plugins(fanim::FanimPlugin {
             width: 16 * scale,
@@ -66,51 +65,51 @@ impl Peak {
     }
 }
 
-#[derive(Component)]
-struct FrequencyAnalyzer {
-    planner: FftPlanner<f32>,
-    buffer: Vec<Complex<f32>>,
-    bass: f32,
-    mid: f32,
-    high: f32,
-}
-
-impl FrequencyAnalyzer {
-    pub fn new(size: usize) -> Self {
-        Self {
-            planner: FftPlanner::new(),
-            buffer: vec![Complex::new(0.0, 0.0); size],
-            bass: 0.0,
-            mid: 0.0,
-            high: 0.0,
-        }
-    }
-
-    pub fn process(&mut self, samples: &[(f32, f32)]) {
-        for (i, (l, r)) in samples.iter().enumerate().take(self.buffer.len()) {
-            let mono = (l + r) / 2.0;
-            self.buffer[i] = Complex::new(mono, 0.0);
-        }
-        for i in samples.len()..self.buffer.len() {
-            self.buffer[i] = Complex::new(0.0, 0.0);
-        }
-        let fft = self.planner.plan_fft_forward(self.buffer.len());
-        fft.process(&mut self.buffer);
-        let bass_end = self.buffer.len() / 16;
-        let mid_end = self.buffer.len() / 3;
-        self.bass = self.band_energy(0, bass_end);
-        self.mid = self.band_energy(bass_end, mid_end);
-        self.high = self.band_energy(mid_end, self.buffer.len() / 2);
-    }
-
-    fn band_energy(&self, start: usize, end: usize) -> f32 {
-        let sum = self.buffer[start..end]
-            .iter()
-            .map(|c| c.norm())
-            .sum::<f32>();
-        sum / (end - start) as f32
-    }
-}
+// #[derive(Component)]
+// struct FrequencyAnalyzer {
+//     planner: FftPlanner<f32>,
+//     buffer: Vec<Complex<f32>>,
+//     bass: f32,
+//     mid: f32,
+//     high: f32,
+// }
+//
+// impl FrequencyAnalyzer {
+//     pub fn new(size: usize) -> Self {
+//         Self {
+//             planner: FftPlanner::new(),
+//             buffer: vec![Complex::new(0.0, 0.0); size],
+//             bass: 0.0,
+//             mid: 0.0,
+//             high: 0.0,
+//         }
+//     }
+//
+//     pub fn process(&mut self, samples: &[(f32, f32)]) {
+//         for (i, (l, r)) in samples.iter().enumerate().take(self.buffer.len()) {
+//             let mono = (l + r) / 2.0;
+//             self.buffer[i] = Complex::new(mono, 0.0);
+//         }
+//         for i in samples.len()..self.buffer.len() {
+//             self.buffer[i] = Complex::new(0.0, 0.0);
+//         }
+//         let fft = self.planner.plan_fft_forward(self.buffer.len());
+//         fft.process(&mut self.buffer);
+//         let bass_end = self.buffer.len() / 16;
+//         let mid_end = self.buffer.len() / 3;
+//         self.bass = self.band_energy(0, bass_end);
+//         self.mid = self.band_energy(bass_end, mid_end);
+//         self.high = self.band_energy(mid_end, self.buffer.len() / 2);
+//     }
+//
+//     fn band_energy(&self, start: usize, end: usize) -> f32 {
+//         let sum = self.buffer[start..end]
+//             .iter()
+//             .map(|c| c.norm())
+//             .sum::<f32>();
+//         sum / (end - start) as f32
+//     }
+// }
 
 pub fn blood_red() -> Palette {
     let blood = GradientBuilder::new()
@@ -143,7 +142,7 @@ fn palette_peak(
     // mut palette: Single<&mut Palette>,
     mut rotation: Single<&mut Rotation>,
     // analyzer: Single<(&mut FrequencyAnalyzer, &mut LowPass)>,
-    peak: Single<(&mut Peak, &mut LowPass), Without<FrequencyAnalyzer>>,
+    peak: Single<(&mut Peak, &mut LowPass)>,
     samples: Single<&Samples>,
     delta: Single<&DeltaTime>,
 ) {
@@ -165,10 +164,10 @@ fn palette_peak(
 
 fn spawn_animation(mut commands: Commands, sample_rate: Single<&SampleRate>) {
     commands.spawn(AudioPlayer::new("assets/bleed.mp3"));
-    commands.spawn((
-        FrequencyAnalyzer::new(2048),
-        LowPass::new(100.0, **sample_rate),
-    ));
+    // commands.spawn((
+    //     FrequencyAnalyzer::new(2048),
+    //     LowPass::new(100.0, **sample_rate),
+    // ));
     commands.spawn(Rms::new(**sample_rate, 0.01));
     commands.spawn((Peak::default(), LowPass::new(100.0, **sample_rate)));
     let target = commands
