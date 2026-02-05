@@ -9,6 +9,9 @@ name = "bleed"
 [[bin]]
 name = "snow"
 
+[[bin]]
+name = "pickover"
+
 [dependencies]
 bevy_app = "0.18.0"
 bevy_derive = "0.18.0"

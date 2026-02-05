@@ -8,7 +8,7 @@ fn main() {
     _ = std::fs::create_dir_all("data");
 
     let hq = false;
-    let (scale, super_samples, fps) = if hq { (160, 2, 60) } else { (32, 1, 10) };
+    let (scale, super_samples, fps) = if hq { (240, 2, 60) } else { (32, 1, 10) };
     App::default()
         .add_plugins(fanim::FanimPlugin {
             width: 16 * scale,
@@ -219,6 +219,7 @@ fn spawn_animation(mut commands: Commands, sample_rate: Single<&SampleRate>) {
                 (
                     Keyframe(Julia(1.0)),
                     Keyframe(ColorRotation(0.25)),
+                    Keyframe(Pickover(1.0)),
                     // Keyframe(BurningShip(0.0)),
                     Keyframe(Exponent(4.0)),
                     Keyframe(ColorScale(1.0)),

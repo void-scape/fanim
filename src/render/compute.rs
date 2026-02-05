@@ -49,6 +49,7 @@ pub fn compute_pass(
                 &ColorRotation,
                 &BuddhaSamples,
                 &RgbIterations,
+                &Pickover,
             ),
             Or<(
                 Changed<Iterations>,
@@ -64,6 +65,7 @@ pub fn compute_pass(
                 Changed<ColorRotation>,
                 Changed<BuddhaSamples>,
                 Changed<RgbIterations>,
+                Changed<Pickover>,
             )>,
         >,
     >,
@@ -87,6 +89,7 @@ pub fn compute_pass(
             color_rotation,
             buddha_samples,
             rgb_iterations,
+            pickover,
         ) = fractal.into_inner();
 
         let fractal = Fractal {
@@ -103,6 +106,7 @@ pub fn compute_pass(
             color_rotation: color_rotation.0,
             buddha_samples: buddha_samples.0,
             rgb_iterations: *rgb_iterations,
+            pickover: pickover.0,
         };
         renderer
             .queue

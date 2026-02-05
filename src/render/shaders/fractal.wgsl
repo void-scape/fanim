@@ -20,6 +20,7 @@ struct Fractal {
 	riter: u32,
 	giter: u32,
 	biter: u32,
+	pickover: f32,
 }
 
 struct BuddhaNorm {
@@ -169,26 +170,18 @@ fn render_buddha(@builtin(global_invocation_id) id: vec3<u32>) {
 
 	if args.riter > 0 && buddha_norm.rmax != buddha_norm.rmin {
 		let riter = buddha_iterations[index];
-		ri = (f32(riter) - f32(buddha_norm.rmin)) / f32(buddha_norm.rmax - buddha_norm.rmin);
+		ri = (f32(riter)) / f32(buddha_norm.rmax);
 	}
 	if args.giter > 0 && buddha_norm.gmax != buddha_norm.gmin {
 		let giter = buddha_iterations[index + 1];
-		gi = (f32(giter) - f32(buddha_norm.gmin)) / f32(buddha_norm.gmax - buddha_norm.gmin);
+		gi = (f32(giter)) / f32(buddha_norm.gmax);
 	}
 	if args.biter > 0 && buddha_norm.bmax != buddha_norm.bmin {
 		let biter = buddha_iterations[index + 2];
-		bi = (f32(biter) - f32(buddha_norm.bmin)) / f32(buddha_norm.bmax - buddha_norm.bmin);
+		bi = (f32(biter)) / f32(buddha_norm.bmax);
 	}
 
-	// let rw = 1.0;
-	// let gw = 1.0;
-	// let bw = 1.0;
-	let mi = log2(f32(max(max(args.riter, args.giter), args.biter)));
-	let rw = log2(f32(args.riter)) / mi;
-	let gw = log2(f32(args.giter)) / mi;
-	let bw = log2(f32(args.biter)) / mi;
-
-    textureStore(buddha, vec2(id.xy), vec4(ri * rw, gi * gw, bi * bw, 1.0));
+    textureStore(buddha, vec2(id.xy), vec4(ri, gi, bi, 1.0));
 }
 
 @compute @workgroup_size(16, 16)
@@ -218,12 +211,19 @@ fn render_mandelbrot(@builtin(global_invocation_id) id: vec3<u32>) {
 	let c = cz.c;
 	var z = cz.z;
     var iteration: u32 = 0;
+	var trap = 1000000.0;
 
     while (dot(z, z) < radius && iteration < args.iterations) {
 		z = func(z, c);
+		let dist = abs(z);
+		trap = min(trap, min(dist.x, dist.y));
         iteration++;
     }
-    textureStore(mandelbrot, vec2(id.xy), color(iteration, z));
+
+	let col = color(iteration, z);
+	let ctrap = col * trap;
+	let result = col * (1.0 - args.pickover) + ctrap * args.pickover;
+    textureStore(mandelbrot, vec2(id.xy), vec4(result.rgb, 1.0));
 }
 
 struct CandZ {

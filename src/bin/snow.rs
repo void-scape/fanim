@@ -9,9 +9,9 @@ fn main() {
 
     let hq = false;
     let (scale, super_samples, fps, buddha, buddha_samples) = if hq {
-        (120, 2, 30, 500, 32)
+        (120, 2, 30, 200, 32)
     } else {
-        (32, 1, 10, 500, 2)
+        (32, 1, 10, 200, 4)
     };
     App::default()
         .add_plugins(fanim::FanimPlugin {
@@ -49,7 +49,7 @@ fn spawn_animation(buddha: u32, buddha_samples: u32) -> impl FnMut(Commands) {
                 Mandelbrot(0.0),
                 Buddha(1.0),
                 Rotation(-PI / 2.0),
-                Exponent(0.8),
+                // Exponent(0.8),
                 BuddhaSamples(buddha_samples),
                 RgbIterations {
                     r: buddha,
@@ -61,29 +61,36 @@ fn spawn_animation(buddha: u32, buddha_samples: u32) -> impl FnMut(Commands) {
 
         commands.spawn(AnimationTarget(target)).insert(animations![
             (
-                Keyframe(Exponent(1.35)),
-                EaseFunction::SmootherStep,
-                Duration(0.9),
+                Keyframe(Julia(1.0)),
+                Keyframe(CPlane { x: 1.0, y: 0.0 }),
+                Duration(5.0)
             ),
-            parallel![
-                (
-                    Keyframe(Exponent(2.25)),
-                    EaseFunction::SineInOut,
-                    Duration(1.5),
-                ),
-                animations![
-                    (
-                        Keyframe(Rotation(-TAU)),
-                        EaseFunction::ExponentialIn,
-                        Duration(1.5)
-                    ),
-                    (
-                        Keyframe(Rotation(-TAU * 1.15)),
-                        EaseFunction::ExponentialOut,
-                        Duration(1.5)
-                    ),
-                ],
-            ],
+            // Duration(1.0 / 10.0),
+
+            // (
+            //     Keyframe(Exponent(1.35)),
+            //     EaseFunction::SmootherStep,
+            //     Duration(0.9),
+            // ),
+            // parallel![
+            //     (
+            //         Keyframe(Exponent(2.25)),
+            //         EaseFunction::SineInOut,
+            //         Duration(1.5),
+            //     ),
+            //     animations![
+            //         (
+            //             Keyframe(Rotation(-TAU)),
+            //             EaseFunction::ExponentialIn,
+            //             Duration(1.5)
+            //         ),
+            //         (
+            //             Keyframe(Rotation(-TAU * 1.15)),
+            //             EaseFunction::ExponentialOut,
+            //             Duration(1.5)
+            //         ),
+            //     ],
+            // ],
             (system(fanim::encoder::finish), Duration(0.0))
         ]);
     }

@@ -59,6 +59,7 @@ fractal_component!(Mandelbrot, f32);
 fractal_component!(Buddha, f32);
 fractal_component!(BuddhaSamples, u32);
 fractal_component!(ColorRotation, f32);
+fractal_component!(Pickover, f32);
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Component)]
@@ -225,6 +226,7 @@ pub struct Fractal {
     color_rotation: f32,
     buddha_samples: u32,
     rgb_iterations: RgbIterations,
+    pickover: f32,
 }
 
 impl Default for Fractal {
@@ -243,6 +245,7 @@ impl Default for Fractal {
             color_rotation: 0.0,
             buddha_samples: 32,
             rgb_iterations: RgbIterations::default(),
+            pickover: 0.0,
         }
     }
 }
@@ -263,6 +266,7 @@ impl Fractal {
             color_rotation,
             buddha_samples,
             rgb_iterations,
+            pickover,
         } = self;
 
         (
@@ -277,6 +281,7 @@ impl Fractal {
                 palette::magma(),
                 rgb_iterations,
                 ColorRotation(color_rotation),
+                Pickover(pickover),
             ),
             (Julia(julia), BurningShip(burning_ship), c, z),
             (Mandelbrot(1.0), Buddha(0.0), BuddhaSamples(buddha_samples)),
