@@ -180,7 +180,15 @@ fn render_buddha(@builtin(global_invocation_id) id: vec3<u32>) {
 		bi = (f32(biter) - f32(buddha_norm.bmin)) / f32(buddha_norm.bmax - buddha_norm.bmin);
 	}
 
-    textureStore(buddha, vec2(id.xy), vec4(ri, gi, bi, 1.0));
+	// let rw = 1.0;
+	// let gw = 1.0;
+	// let bw = 1.0;
+	let mi = log2(f32(max(max(args.riter, args.giter), args.biter)));
+	let rw = log2(f32(args.riter)) / mi;
+	let gw = log2(f32(args.giter)) / mi;
+	let bw = log2(f32(args.biter)) / mi;
+
+    textureStore(buddha, vec2(id.xy), vec4(ri * rw, gi * gw, bi * bw, 1.0));
 }
 
 @compute @workgroup_size(16, 16)

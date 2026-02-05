@@ -8,10 +8,10 @@ fn main() {
     _ = std::fs::create_dir_all("data");
 
     let hq = false;
-    let (scale, super_samples, fps, buddha) = if hq {
-        (160, 2, 60, 500)
+    let (scale, super_samples, fps, buddha, buddha_samples) = if hq {
+        (120, 2, 30, 500, 32)
     } else {
-        (16, 1, 10, 10)
+        (32, 1, 10, 500, 2)
     };
     App::default()
         .add_plugins(fanim::FanimPlugin {
@@ -23,7 +23,7 @@ fn main() {
             data_path: "data".into(),
             output_path: "out.mp4".into(),
         })
-        .add_systems(Startup, spawn_animation(buddha))
+        .add_systems(Startup, spawn_animation(buddha, buddha_samples))
         .set_runner(fanim::runner)
         .run();
 
@@ -35,7 +35,7 @@ fn main() {
         .unwrap();
 }
 
-fn spawn_animation(buddha: u32) -> impl FnMut(Commands) {
+fn spawn_animation(buddha: u32, buddha_samples: u32) -> impl FnMut(Commands) {
     move |mut commands: Commands| {
         commands.spawn(AudioPlayer::new("assets/snow.mp3"));
         let target = commands
@@ -50,10 +50,11 @@ fn spawn_animation(buddha: u32) -> impl FnMut(Commands) {
                 Buddha(1.0),
                 Rotation(-PI / 2.0),
                 Exponent(0.8),
+                BuddhaSamples(buddha_samples),
                 RgbIterations {
-                    r: buddha * 100,
+                    r: buddha,
                     g: buddha * 10,
-                    b: buddha,
+                    b: buddha * 100,
                 },
             ))
             .id();
@@ -62,7 +63,7 @@ fn spawn_animation(buddha: u32) -> impl FnMut(Commands) {
             (
                 Keyframe(Exponent(1.35)),
                 EaseFunction::SmootherStep,
-                Duration(1.0),
+                Duration(0.9),
             ),
             parallel![
                 (
@@ -70,13 +71,19 @@ fn spawn_animation(buddha: u32) -> impl FnMut(Commands) {
                     EaseFunction::SineInOut,
                     Duration(1.5),
                 ),
-                (Delta(Rotation(-TAU)), EaseFunction::SineIn, Duration(1.5),),
+                animations![
+                    (
+                        Keyframe(Rotation(-TAU)),
+                        EaseFunction::ExponentialIn,
+                        Duration(1.5)
+                    ),
+                    (
+                        Keyframe(Rotation(-TAU * 1.15)),
+                        EaseFunction::ExponentialOut,
+                        Duration(1.5)
+                    ),
+                ],
             ],
-            (
-                Delta(Rotation(-TAU * 0.15)),
-                EaseFunction::SineOut,
-                Duration(1.5)
-            ),
             (system(fanim::encoder::finish), Duration(0.0))
         ]);
     }
