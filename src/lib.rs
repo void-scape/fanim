@@ -1,15 +1,17 @@
 #![allow(clippy::type_complexity)]
 #![allow(clippy::too_many_arguments)]
 
-use bevy_app::{App, AppExit, Plugin};
+use bevy_app::{App, AppExit, Last, Plugin, Startup};
+use bevy_ecs::system::Commands;
 
 pub mod animation;
 pub mod audio;
 pub mod encoder;
+pub mod image;
 pub mod render;
 
 pub mod prelude {
-    pub use super::FanimPlugin;
+    pub use super::VideoPlugin;
     pub use super::animation::*;
     pub use super::audio::*;
     pub use super::encoder::*;
@@ -17,7 +19,32 @@ pub mod prelude {
     pub use super::{animations, lerp_newtype, lp_newtype, parallel};
 }
 
-pub struct FanimPlugin {
+pub struct ImagePlugin {
+    pub width: usize,
+    pub height: usize,
+    pub super_samples: usize,
+    pub output_path: String,
+}
+
+impl Plugin for ImagePlugin {
+    fn build(&self, app: &mut App) {
+        let output = self.output_path.clone();
+        app.add_plugins((
+            image::ImagePlugin,
+            render::RenderPlugin {
+                width: self.width,
+                height: self.height,
+                super_samples: self.super_samples,
+            },
+        ))
+        .add_systems(Startup, move |mut commands: Commands| {
+            commands.spawn(image::ImageOutput(output.clone()));
+        })
+        .add_systems(Last, image::finish);
+    }
+}
+
+pub struct VideoPlugin {
     pub width: usize,
     pub height: usize,
     pub super_samples: usize,
@@ -27,10 +54,11 @@ pub struct FanimPlugin {
     pub output_path: String,
 }
 
-impl Plugin for FanimPlugin {
+impl Plugin for VideoPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
             audio::AudioPlugin,
+            image::ImagePlugin,
             animation::AnimationPlugin,
             encoder::EncoderPlugin {
                 fps: self.fps,

@@ -1,17 +1,17 @@
 use crate::{
     animation::DeltaTime,
     audio::{SampleRate, Samples},
-    byte_slice,
-    render::{Renderer, ssaa::SsaaPipeline},
+    image::Image,
+    prelude::{AnimationOf, Animations, Finished},
+    render::{RenderSystems, Renderer},
 };
-use bevy_app::{AppExit, Last, Plugin, PreStartup};
+use bevy_app::{AppExit, Last, Plugin, PostUpdate, PreStartup};
 use bevy_ecs::prelude::*;
 use std::{
     fs::File,
     io::{BufWriter, Write},
     os::unix::fs::MetadataExt,
 };
-use tint::Srgb;
 
 pub struct EncoderPlugin {
     pub fps: usize,
@@ -44,7 +44,8 @@ impl Plugin for EncoderPlugin {
             Ok(())
         };
         app.add_systems(PreStartup, spawn_encoder)
-            .add_systems(Last, render_frame);
+            .add_systems(PostUpdate, encode_frame.after(RenderSystems::MapImage))
+            .add_systems(Last, finish);
     }
 }
 
@@ -81,71 +82,22 @@ impl Encoder {
     }
 }
 
-pub fn render_frame(
+fn encode_frame(
     renderer: Single<&Renderer>,
-    ssaa: Single<&SsaaPipeline>,
     samples: Single<&Samples>,
     mut video_encoder: Single<&mut Encoder>,
+    image: Single<&Image>,
 ) -> bevy_ecs::error::Result {
-    let mut encoder = renderer
-        .device
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-
-    encoder.copy_texture_to_buffer(
-        wgpu::TexelCopyTextureInfo {
-            texture: ssaa.output_texture(),
-            mip_level: 0,
-            origin: wgpu::Origin3d::ZERO,
-            aspect: wgpu::TextureAspect::All,
-        },
-        wgpu::TexelCopyBufferInfo {
-            buffer: &renderer.output_buffer,
-            layout: wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(renderer.bytes_per_row as u32),
-                rows_per_image: None,
-            },
-        },
-        wgpu::Extent3d {
-            width: renderer.width as u32,
-            height: renderer.height as u32,
-            depth_or_array_layers: 1,
-        },
-    );
-    renderer.queue.submit(Some(encoder.finish()));
-
-    let buffer_slice = renderer.output_buffer.slice(..);
-    buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
-    renderer
-        .device
-        .poll(wgpu::PollType::Wait {
-            submission_index: None,
-            timeout: None,
-        })
-        .unwrap();
-
-    let padded_data = buffer_slice.get_mapped_range();
-    let mut pixels = Vec::with_capacity(renderer.width * renderer.height);
-    for chunk in padded_data.chunks(renderer.bytes_per_row) {
-        pixels.extend(
-            chunk[..renderer.width * 4]
-                .chunks(4)
-                .map(|c| Srgb::new(c[0], c[1], c[2], c[3])),
-        );
-    }
-    drop(padded_data);
-    renderer.output_buffer.unmap();
-
     // write image data
     let output = format!("{}/{}.png", video_encoder.data_path, video_encoder.frame);
-    png(
+    crate::image::png(
         &output,
-        byte_slice(&pixels),
+        crate::byte_slice(image.as_slice()),
         renderer.width,
         renderer.height,
     )?;
     // write sample data
-    // TODO: endianess
+    // TODO: endianness
     video_encoder.audio_file.write_all(unsafe {
         std::slice::from_raw_parts(samples.as_ptr().cast(), samples.len() * 8)
     })?;
@@ -160,7 +112,12 @@ pub fn finish(
     mut commands: Commands,
     mut writer: MessageWriter<AppExit>,
     encoder: Single<(Entity, &mut Encoder)>,
+    animations: Query<(), (With<Animations>, Without<AnimationOf>, Without<Finished>)>,
 ) -> bevy_ecs::error::Result {
+    if !animations.is_empty() {
+        return Ok(());
+    }
+
     let (entity, mut encoder) = encoder.into_inner();
     encoder.audio_file.flush()?;
     ffmpeg(
@@ -177,18 +134,6 @@ pub fn finish(
         std::fs::metadata(&encoder.output_path)?.size(),
         encoder.output_path
     );
-    Ok(())
-}
-
-// Fast png encoding using the rust `png` crate.
-fn png(output: &str, frame: &[u8], width: usize, height: usize) -> std::io::Result<()> {
-    let file = std::fs::File::create(output)?;
-    let output = std::io::BufWriter::new(file);
-    let mut encoder = png::Encoder::new(output, width as u32, height as u32);
-    encoder.set_color(png::ColorType::Rgba);
-    encoder.set_depth(png::BitDepth::Eight);
-    let mut writer = encoder.write_header().unwrap();
-    writer.write_image_data(frame).unwrap();
     Ok(())
 }
 

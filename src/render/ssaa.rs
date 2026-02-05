@@ -1,5 +1,4 @@
 use crate::{
-    encoder::Encoder,
     render::{Buddha, Mandelbrot, Renderer},
 };
 use bevy_ecs::prelude::*;
@@ -36,7 +35,6 @@ pub fn render_pass(
     renderer: Single<&Renderer>,
     pipeline: Single<&SsaaPipeline>,
     opacity: Single<(Ref<Buddha>, Ref<Mandelbrot>)>,
-    _enable: Single<&Encoder>,
 ) {
     let (buddha, mandelbrot) = opacity.into_inner();
     if buddha.is_changed() || mandelbrot.is_changed() {

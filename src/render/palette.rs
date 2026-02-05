@@ -1,7 +1,4 @@
-use crate::{
-    encoder::Encoder,
-    render::{Palette, Renderer},
-};
+use crate::render::{Palette, Renderer};
 use bevy_ecs::prelude::*;
 use tint::Srgb;
 
@@ -185,7 +182,6 @@ pub fn write_texture(
     renderer: Single<&Renderer>,
     palette: Single<&Palette, Changed<Palette>>,
     bind_group: Single<&PaletteBindGroup>,
-    _enable: Single<&Encoder>,
 ) {
     renderer.queue.write_texture(
         wgpu::TexelCopyTextureInfo {

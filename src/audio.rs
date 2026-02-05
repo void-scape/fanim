@@ -126,37 +126,6 @@ fn volume(mut samples: Single<&mut Samples>, volume: Single<&Volume>) {
     }
 }
 
-#[derive(Component)]
-pub struct LP<T>(T, LowPass);
-
-impl<T> std::ops::Deref for LP<T> {
-    type Target = T;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<T> std::ops::DerefMut for LP<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl<T> LP<T> {
-    pub fn new(freq: f32, sample_rate: SampleRate, val: T) -> Self {
-        Self(val, LowPass::new(freq, sample_rate))
-    }
-
-    pub fn sample<S>(&mut self) -> S
-    where
-        T: Sample<S>,
-        S: SampleVal,
-    {
-        let v = self.0.sample();
-        S::from_f32(self.1.process(v.into_f32()))
-    }
-}
-
 pub trait Sample<T>
 where
     T: SampleVal,

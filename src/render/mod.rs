@@ -1,5 +1,5 @@
 use crate::animation::{Lerp, LogF32};
-use bevy_app::{Plugin, PostStartup, PostUpdate};
+use bevy_app::{Plugin, PostStartup, PostUpdate, PreStartup};
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::prelude::*;
 use tint::{Color, Srgb};
@@ -23,20 +23,38 @@ impl Plugin for RenderPlugin {
             commands.spawn(Renderer::new(width, height, super_samples));
         };
 
-        app.add_systems(
-            PostStartup,
-            (spawn_renderer, palette::spawn, ssaa::spawn, compute::spawn).chain(),
-        )
-        .add_systems(
+        app.add_systems(PreStartup, spawn_renderer)
+            .add_systems(
+                PostStartup,
+                (palette::spawn, ssaa::spawn, compute::spawn).chain(),
+            )
+            .add_systems(
+                PostUpdate,
+                (
+                    palette::write_texture.in_set(RenderSystems::Palette),
+                    compute::compute_pass.in_set(RenderSystems::Compute),
+                    ssaa::render_pass.in_set(RenderSystems::Render),
+                )
+                    .chain(),
+            );
+
+        app.configure_sets(
             PostUpdate,
             (
-                palette::write_texture,
-                compute::compute_pass,
-                ssaa::render_pass,
-            )
-                .chain(),
+                RenderSystems::Palette.before(RenderSystems::Compute),
+                RenderSystems::Compute.before(RenderSystems::Render),
+                RenderSystems::Render.before(RenderSystems::MapImage),
+            ),
         );
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, SystemSet)]
+pub enum RenderSystems {
+    Palette,
+    Compute,
+    Render,
+    MapImage,
 }
 
 macro_rules! fractal_component {

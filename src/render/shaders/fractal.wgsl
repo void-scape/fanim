@@ -55,6 +55,18 @@ fn c_pow(z: vec2<f32>, n: f32) -> vec2<f32> {
     return vec2(rn * cos(na), rn * sin(na));
 }
 
+fn c_sin(a: vec2<f32>) -> vec2<f32> {
+	return vec2(sin(a.x) * cosh(a.y), cos(a.x) * sinh(a.y));
+}
+
+fn c_ln(a: vec2<f32>) -> vec2<f32> {
+	return vec2(log(length(a)), atan2(abs(a.y), a.x));
+}
+
+fn c_exp(a: vec2<f32>) -> vec2<f32> {
+	return vec2(cos(a.y), sin(a.y)) * exp(a.x);
+}
+
 @compute @workgroup_size(8, 8)
 fn compute_buddha(@builtin(global_invocation_id) id: vec3<u32>) {
     let sz = textureDimensions(buddha);
@@ -215,15 +227,15 @@ fn render_mandelbrot(@builtin(global_invocation_id) id: vec3<u32>) {
 
     while (dot(z, z) < radius && iteration < args.iterations) {
 		z = func(z, c);
-		let dist = abs(z);
-		trap = min(trap, min(dist.x, dist.y));
+		let dist = min(abs(z.x), abs(z.y));
+		trap = min(trap, dist);
         iteration++;
     }
 
-	let col = color(iteration, z);
-	let ctrap = col * trap;
-	let result = col * (1.0 - args.pickover) + ctrap * args.pickover;
-    textureStore(mandelbrot, vec2(id.xy), vec4(result.rgb, 1.0));
+	let zc = color_z(iteration, z);
+	let tc = color_trap(trap);
+	let result = mix(zc, tc, args.pickover);
+    textureStore(mandelbrot, vec2(id.xy), vec4(result, 1.0));
 }
 
 struct CandZ {
@@ -241,15 +253,15 @@ fn cz(x0: f32, y0: f32) -> CandZ {
 	return out;
 }
 
-fn color(iteration: u32, z: vec2<f32>) -> vec4<f32> {
+fn color_z(iteration: u32, z: vec2<f32>) -> vec3<f32> {
 	if (iteration == args.iterations) {
-        return vec4(0.0, 0.0, 0.0, 1.0);
+        return vec3(0.0, 0.0, 0.0);
     } 
     let zn = dot(z, z);
     var iter: f32;
-	// When zn explodes due to a large exponent, a black bar appears and looks
-	// like an artifact. In that case, this should just use the raw iteration value.
     if (zn > 3.0e38) {
+		// When zn explodes due to a large exponent, a black bar appears and looks
+		// like an artifact. In that case, this should just use the raw iteration value.
         iter = f32(iteration); 
     } else {
 		// smooth otherwise
@@ -257,8 +269,16 @@ fn color(iteration: u32, z: vec2<f32>) -> vec4<f32> {
         iter = f32(iteration) + 1.0 - nu;
     }
     let uv = vec2(iter * args.color_scale / PALETTE_LEN + args.rotation * args.color_rotation, 0.5);
-    let rgb = textureSampleLevel(palette, palette_sampler, uv, 0.0).rgb;
-    return vec4(rgb, 1.0);
+    return textureSampleLevel(palette, palette_sampler, uv, 0.0).rgb;
+}
+
+fn color_trap(dist: f32) -> vec3<f32> {
+	// clamping makes this more aesthetic
+	let d = clamp(dist, 0.0000001, 1.0);
+	// very noisy without log
+    let t = -log(d) * 0.1;
+    let uv = vec2(t * args.color_scale + args.rotation * args.color_rotation, 0.5);
+    return textureSampleLevel(palette, palette_sampler, uv, 0.0).rgb;
 }
 
 fn func(z: vec2<f32>, c: vec2<f32>) -> vec2<f32> {

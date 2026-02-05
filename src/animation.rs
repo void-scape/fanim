@@ -1,4 +1,4 @@
-use crate::audio::{AudioSystems, LP};
+use crate::audio::AudioSystems;
 use bevy_app::{Plugin, PostStartup, Update};
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::{component::Mutable, lifecycle::HookContext, prelude::*, world::DeferredWorld};
@@ -117,19 +117,15 @@ fn end<T: Component<Mutability = Mutable> + Lerp + Clone>(
     added: On<Add, Finished>,
     animations: Query<(&AnimationTarget, &Keyframe<T>)>,
     mut targets: Query<&mut T>,
-    mut lp_targets: Query<&mut LP<T>>,
 ) {
     if let Ok((target, keyframe)) = animations.get(added.entity) {
-        if let Ok(mut component) = targets.get_mut(target.0) {
-            *component = keyframe.0.clone();
-        } else if let Ok(mut component) = lp_targets.get_mut(target.0) {
-            **component = keyframe.0.clone();
-        } else {
+        let Ok(mut component) = targets.get_mut(target.0) else {
             panic!(
                 "animation target does not have component {}",
                 std::any::type_name::<T>()
             );
-        }
+        };
+        *component = keyframe.0.clone();
     }
 }
 
@@ -279,7 +275,6 @@ fn schedule_keyframe<T: Component<Mutability = Mutable> + Lerp + Clone>(
 
 fn keyframe<T: Component<Mutability = Mutable> + Lerp + Clone>(
     mut targets: Query<&mut T>,
-    mut lp_targets: Query<&mut LP<T>>,
     animations: Query<
         (
             &AnimationTarget,
@@ -299,12 +294,6 @@ fn keyframe<T: Component<Mutability = Mutable> + Lerp + Clone>(
                 t = ease.eval(t);
             }
             *component = start.0.lerp(&end.0, t);
-        } else if let Ok(mut component) = lp_targets.get_mut(target.0) {
-            let mut t = (playhead.0 / duration.0).clamp(0.0, 1.0);
-            if let Some(ease) = ease {
-                t = ease.eval(t);
-            }
-            **component = start.0.lerp(&end.0, t);
         } else {
             panic!(
                 "animation target does not have component {}",
@@ -343,7 +332,6 @@ fn schedule_delta<T: Component<Mutability = Mutable> + std::ops::Add<Output = T>
 
 fn delta<T: Component<Mutability = Mutable> + std::ops::Add<Output = T> + Lerp + Clone>(
     mut targets: Query<&mut T>,
-    mut lp_targets: Query<&mut LP<T>>,
     animations: Query<
         (
             &AnimationTarget,
@@ -364,13 +352,6 @@ fn delta<T: Component<Mutability = Mutable> + std::ops::Add<Output = T> + Lerp +
             }
             let end = delta.0.clone().add(start.0.clone());
             *component = start.0.lerp(&end, t);
-        } else if let Ok(mut component) = lp_targets.get_mut(target.0) {
-            let mut t = (playhead.0 / duration.0).clamp(0.0, 1.0);
-            if let Some(ease) = ease {
-                t = ease.eval(t);
-            }
-            let end = delta.0.clone().add(start.0.clone());
-            **component = start.0.lerp(&end, t);
         } else {
             panic!(
                 "animation target does not have component {}",
@@ -388,29 +369,17 @@ fn start<T: Component + Clone>(
     mut commands: Commands,
     targets: Query<&AnimationTarget>,
     components: Query<&T>,
-    lp_components: Query<&LP<T>>,
 ) {
     if let Ok(target) = targets.get(inserted.entity) {
-        match components.get(target.0) {
-            Ok(current) => {
-                commands
-                    .entity(inserted.entity)
-                    .insert(Start(current.clone()));
-            }
-            Err(_) => match lp_components.get(target.0) {
-                Ok(current) => {
-                    commands
-                        .entity(inserted.entity)
-                        .insert(Start((*current).clone()));
-                }
-                Err(_) => {
-                    panic!(
-                        "animation target does not have component {}",
-                        std::any::type_name::<T>()
-                    );
-                }
-            },
-        }
+        let Ok(current) = components.get(target.0) else {
+            panic!(
+                "animation target does not have component {}",
+                std::any::type_name::<T>()
+            );
+        };
+        commands
+            .entity(inserted.entity)
+            .insert(Start(current.clone()));
     }
 }
 

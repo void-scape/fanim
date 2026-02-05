@@ -3,57 +3,31 @@ use bevy_ecs::prelude::*;
 use fanim::prelude::*;
 
 fn main() {
-    _ = std::fs::remove_dir_all("data");
-    _ = std::fs::create_dir_all("data");
-
-    let hq = false;
-    let (scale, super_samples, fps) = if hq { (240, 2, 60) } else { (32, 1, 10) };
+    let scale = 240;
     App::default()
-        .add_plugins(fanim::FanimPlugin {
+        .add_plugins(fanim::ImagePlugin {
             width: 16 * scale,
             height: 9 * scale,
-            super_samples,
-            fps,
-            sample_rate: 44_100,
-            data_path: "data".into(),
-            output_path: "out.mp4".into(),
+            super_samples: 4,
+            output_path: "out.png".into(),
         })
-        .add_systems(Startup, spawn_animation)
+        .add_systems(Startup, spawn_fractal)
         .set_runner(fanim::runner)
         .run();
-
-    std::process::Command::new("open")
-        .arg("out.mp4")
-        .spawn()
-        .unwrap()
-        .wait()
-        .unwrap();
 }
 
-fn spawn_animation(mut commands: Commands) {
-    commands.spawn(AudioPlayer::new("assets/snow.mp3"));
-    let target = commands
-        .spawn(Fractal::default().into_bundle())
-        .insert((
-            View {
-                x: 0.0,
-                y: 0.0,
-                z: 1.25,
-            },
-            CPlane {
-                x: -0.752,
-                y: -1.131,
-            },
-            Julia(1.0),
-        ))
-        .id();
-
-    commands.spawn(AnimationTarget(target)).insert(animations![
-        (
-            Keyframe(Pickover(1.0)),
-            EaseFunction::SmootherStep,
-            Duration(5.0)
-        ),
-        (system(fanim::encoder::finish), Duration(0.0))
-    ]);
+fn spawn_fractal(mut commands: Commands) {
+    commands.spawn(Fractal::default().into_bundle()).insert((
+        View {
+            x: 0.0,
+            y: 0.0,
+            z: 1.5,
+        },
+        CPlane { x: 1.0, y: 1.0 },
+        Julia(1.0),
+        Exponent(5.0),
+        Pickover(1.0),
+        ColorScale(1.0),
+        palette::cubehelix_default(),
+    ));
 }

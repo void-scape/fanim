@@ -10,7 +10,7 @@ fn main() {
     let hq = false;
     let (scale, super_samples, fps) = if hq { (240, 2, 60) } else { (32, 1, 10) };
     App::default()
-        .add_plugins(fanim::FanimPlugin {
+        .add_plugins(fanim::VideoPlugin {
             width: 16 * scale,
             height: 9 * scale,
             super_samples,
@@ -22,13 +22,6 @@ fn main() {
         .add_systems(Startup, spawn_animation)
         .set_runner(fanim::runner)
         .run();
-
-    std::process::Command::new("open")
-        .arg("out.mp4")
-        .spawn()
-        .unwrap()
-        .wait()
-        .unwrap();
 }
 
 #[derive(Default, Component)]
@@ -186,8 +179,9 @@ fn spawn_animation(mut commands: Commands, sample_rate: Single<&SampleRate>) {
         ))
         .id();
 
-    commands.spawn(AnimationTarget(target)).insert(animations![
-        parallel![
+    commands
+        .spawn(AnimationTarget(target))
+        .insert(animations![parallel![
             (system(color_scale_rms), Duration(10.0)),
             (system(palette_peak), Duration(40.0)),
             animations![
@@ -251,7 +245,5 @@ fn spawn_animation(mut commands: Commands, sample_rate: Single<&SampleRate>) {
                     Duration(6.0)
                 )
             ]
-        ],
-        (system(fanim::encoder::finish), Duration(0.0))
-    ]);
+        ]]);
 }

@@ -1,8 +1,5 @@
 use super::{Fractal, ssaa::SsaaPipeline};
-use crate::{
-    encoder::Encoder,
-    render::{palette::PaletteBindGroup, *},
-};
+use crate::render::{palette::PaletteBindGroup, *};
 use std::num::NonZeroU64;
 
 #[derive(Component)]
@@ -72,7 +69,6 @@ pub fn compute_pass(
     mut last_buddha: Local<Option<Fractal>>,
     mut last_mandelbrot: Local<Option<Fractal>>,
     mut last_fractal: Local<Fractal>,
-    _enable: Single<&Encoder>,
 ) {
     if let Some(fractal) = fractal {
         let (
