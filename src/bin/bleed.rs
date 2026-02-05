@@ -171,7 +171,7 @@ fn spawn_animation(mut commands: Commands, sample_rate: Single<&SampleRate>) {
     commands.spawn(Rms::new(**sample_rate, 0.01));
     commands.spawn((Peak::default(), LowPass::new(100.0, **sample_rate)));
     let target = commands
-        .spawn(default_fractal())
+        .spawn(Fractal::default().into_bundle())
         .insert((
             blood_red(),
             BurningShip(1.0),

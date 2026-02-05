@@ -1,10 +1,20 @@
-use crate::{encoder::Encoder, render::Renderer};
+use crate::{
+    encoder::Encoder,
+    render::{Buddha, Mandelbrot, Renderer},
+};
 use bevy_ecs::prelude::*;
+
+#[repr(C)]
+struct SsaaUniform {
+    buddha: f32,
+    mandelbrot: f32,
+}
 
 #[derive(Component)]
 pub struct SsaaPipeline {
     pipeline: wgpu::RenderPipeline,
     bind_group: wgpu::BindGroup,
+    uniform: wgpu::Buffer,
     mandelbrot: wgpu::TextureView,
     buddha: wgpu::TextureView,
     dst: wgpu::Texture,
@@ -25,8 +35,21 @@ pub fn spawn(mut commands: Commands, renderer: Single<&Renderer>) {
 pub fn render_pass(
     renderer: Single<&Renderer>,
     pipeline: Single<&SsaaPipeline>,
+    opacity: Single<(Ref<Buddha>, Ref<Mandelbrot>)>,
     _enable: Single<&Encoder>,
 ) {
+    let (buddha, mandelbrot) = opacity.into_inner();
+    if buddha.is_changed() || mandelbrot.is_changed() {
+        renderer.queue.write_buffer(
+            &pipeline.uniform,
+            0,
+            crate::byte_slice(&[SsaaUniform {
+                buddha: **buddha,
+                mandelbrot: **mandelbrot,
+            }]),
+        );
+    }
+
     let mut encoder = renderer
         .device
         .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
@@ -78,38 +101,6 @@ impl SsaaPipeline {
         let dst = device.create_texture(&dst_desc);
         let dst_view = dst.create_view(&Default::default());
 
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: None,
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
-
         let mandelbrot_desc = wgpu::TextureDescriptor {
             size: wgpu::Extent3d {
                 width: (width * samples) as u32,
@@ -151,6 +142,56 @@ impl SsaaPipeline {
             min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
+
+        let uniform = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: std::mem::size_of::<SsaaUniform>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &bind_group_layout,
@@ -166,6 +207,10 @@ impl SsaaPipeline {
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: uniform.as_entire_binding(),
                 },
             ],
         });
@@ -201,6 +246,7 @@ impl SsaaPipeline {
         Self {
             pipeline,
             bind_group,
+            uniform,
             mandelbrot,
             buddha,
             dst,

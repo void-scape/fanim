@@ -7,7 +7,7 @@ edition = "2024"
 name = "bleed"
 
 [[bin]]
-name = "buddha"
+name = "snow"
 
 [dependencies]
 bevy_app = "0.18.0"

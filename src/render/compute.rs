@@ -3,17 +3,18 @@ use crate::{
     encoder::Encoder,
     render::{palette::PaletteBindGroup, *},
 };
-use bevy_ecs::system::SystemChangeTick;
 use std::num::NonZeroU64;
 
 #[derive(Component)]
 pub struct ComputePipeline {
     render_mandelbrot: wgpu::ComputePipeline,
     compute_buddha: wgpu::ComputePipeline,
+    min_max_buddha: wgpu::ComputePipeline,
     render_buddha: wgpu::ComputePipeline,
     bind_group: wgpu::BindGroup,
     uniform: wgpu::Buffer,
-    buddha: wgpu::Buffer,
+    buddha_iterations: wgpu::Buffer,
+    buddha_norm: wgpu::Buffer,
     buddha_bytes: u64,
 }
 
@@ -31,73 +32,88 @@ pub fn compute_pass(
     pipeline: Single<&ComputePipeline>,
     ssaa: Single<&SsaaPipeline>,
     palette: Single<&PaletteBindGroup>,
-    fractal: Single<(
-        EntityRef,
-        &Iterations,
-        &EscapeRadius,
-        &ColorScale,
-        &Exponent,
-        &View,
-        &Rotation,
-        &Julia,
-        &BurningShip,
-        &Buddha,
-        &Mandelbrot,
-        &CPlane,
-        &ZPlane,
-        &ColorRotation,
-        &BuddhaSamples,
-    )>,
-    system_ticks: SystemChangeTick,
+    opacity: Single<(Ref<Mandelbrot>, Ref<Buddha>, &BuddhaSamples)>,
+    fractal: Option<
+        Single<
+            (
+                &Iterations,
+                &EscapeRadius,
+                &ColorScale,
+                &Exponent,
+                &View,
+                &Rotation,
+                &Julia,
+                &BurningShip,
+                &CPlane,
+                &ZPlane,
+                &ColorRotation,
+                &BuddhaSamples,
+                &RgbIterations,
+            ),
+            Or<(
+                Changed<Iterations>,
+                Changed<EscapeRadius>,
+                Changed<ColorScale>,
+                Changed<Exponent>,
+                Changed<View>,
+                Changed<Rotation>,
+                Changed<Julia>,
+                Changed<BurningShip>,
+                Changed<CPlane>,
+                Changed<ZPlane>,
+                Changed<ColorRotation>,
+                Changed<BuddhaSamples>,
+                Changed<RgbIterations>,
+            )>,
+        >,
+    >,
+    mut last_buddha: Local<Option<Fractal>>,
+    mut last_mandelbrot: Local<Option<Fractal>>,
+    mut last_fractal: Local<Fractal>,
     _enable: Single<&Encoder>,
 ) {
-    let (
-        entity,
-        iterations,
-        escape_radius,
-        color_scale,
-        exponent,
-        view,
-        rotation,
-        julia,
-        burning_ship,
-        buddha,
-        mandelbrot,
-        c,
-        z,
-        color_rotation,
-        buddha_samples,
-    ) = fractal.into_inner();
+    if let Some(fractal) = fractal {
+        let (
+            iterations,
+            escape_radius,
+            color_scale,
+            exponent,
+            view,
+            rotation,
+            julia,
+            burning_ship,
+            c,
+            z,
+            color_rotation,
+            buddha_samples,
+            rgb_iterations,
+        ) = fractal.into_inner();
 
-    if entity.archetype().components().iter().all(|id| {
-        entity.get_change_ticks_by_id(*id).is_some_and(|ticks| {
-            !ticks.is_changed(system_ticks.last_run(), system_ticks.this_run())
-        })
-    }) {
-        return;
+        let fractal = Fractal {
+            iterations: iterations.0,
+            escape_radius: escape_radius.0,
+            color_scale: color_scale.0,
+            exponent: exponent.0,
+            view: *view,
+            rotation: rotation.0,
+            julia: julia.0,
+            burning_ship: burning_ship.0,
+            c: *c,
+            z: *z,
+            color_rotation: color_rotation.0,
+            buddha_samples: buddha_samples.0,
+            rgb_iterations: *rgb_iterations,
+        };
+        renderer
+            .queue
+            .write_buffer(&pipeline.uniform, 0, crate::byte_slice(&[fractal]));
+        *last_fractal = fractal;
     }
 
-    let fractal = Fractal {
-        iterations: iterations.0,
-        escape_radius: escape_radius.0,
-        color_scale: color_scale.0,
-        exponent: exponent.0,
-        view: *view,
-        rotation: rotation.0,
-        julia: julia.0,
-        burning_ship: burning_ship.0,
-        c: *c,
-        z: *z,
-        color_rotation: color_rotation.0,
-        buddha: buddha.0,
-        mandelbrot: mandelbrot.0,
-        buddha_samples: buddha_samples.0,
-    };
-    renderer
-        .queue
-        .write_buffer(&pipeline.uniform, 0, crate::byte_slice(&[fractal]));
+    let (mandelbrot, buddha, buddha_samples) = opacity.into_inner();
+    if **mandelbrot > 0.0 && last_mandelbrot.is_none_or(|f| f != *last_fractal) {
+        *last_mandelbrot = Some(*last_fractal);
 
-    if **mandelbrot > 0.0 {
         let mut encoder = renderer
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
@@ -118,16 +134,38 @@ pub fn compute_pass(
         renderer.queue.submit([encoder.finish()]);
     }
 
-    if **buddha > 0.0 {
+    if **buddha > 0.0 && last_buddha.is_none_or(|f| f != *last_fractal) {
+        *last_buddha = Some(*last_fractal);
         renderer
             .queue
             .write_buffer_with(
-                &pipeline.buddha,
+                &pipeline.buddha_iterations,
                 0,
                 NonZeroU64::new(pipeline.buddha_bytes).unwrap(),
             )
             .unwrap()
             .fill(0);
+        renderer.queue.write_buffer(
+            &pipeline.buddha_norm,
+            0,
+            crate::byte_slice(&[f32::MAX, 0.0, f32::MAX, 0.0, f32::MAX, 0.0]),
+        );
+
+        let mut encoder = renderer
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: None,
+            timestamp_writes: None,
+        });
+        cpass.set_pipeline(&pipeline.compute_buddha);
+        cpass.set_bind_group(0, &pipeline.bind_group, &[]);
+        cpass.set_bind_group(1, &palette.bind_group, &[]);
+        let x = (renderer.width as u32 * buddha_samples.0).div_ceil(8);
+        let y = (renderer.height as u32 * buddha_samples.0).div_ceil(8);
+        cpass.dispatch_workgroups(x, y, 1);
+        drop(cpass);
+        renderer.queue.submit([encoder.finish()]);
 
         let mut encoder = renderer
             .device
@@ -137,12 +175,11 @@ pub fn compute_pass(
             label: None,
             timestamp_writes: None,
         });
-        cpass.set_pipeline(&pipeline.compute_buddha);
+        cpass.set_pipeline(&pipeline.min_max_buddha);
         cpass.set_bind_group(0, &pipeline.bind_group, &[]);
         cpass.set_bind_group(1, &palette.bind_group, &[]);
-        let x = (renderer.width as u32 * buddha_samples.0).div_ceil(16);
-        let y = (renderer.height as u32 * buddha_samples.0).div_ceil(16);
-        cpass.dispatch_workgroups(x, y, 1);
+        let x = (renderer.width * renderer.height).div_ceil(256) as u32;
+        cpass.dispatch_workgroups(x, 1, 1);
         drop(cpass);
 
         let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -170,10 +207,16 @@ impl ComputePipeline {
             mapped_at_creation: false,
         });
 
-        let buddha_bytes = (std::mem::size_of::<u32>() * width * height) as u64;
-        let buddha = device.create_buffer(&wgpu::BufferDescriptor {
+        let buddha_bytes = (std::mem::size_of::<u32>() * 3 * width * height) as u64;
+        let buddha_iterations = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: buddha_bytes,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let buddha_norm = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: std::mem::size_of::<u32>() as u64 * 2 * 3,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -221,6 +264,16 @@ impl ComputePipeline {
                     },
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
         });
 
@@ -238,11 +291,15 @@ impl ComputePipeline {
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: buddha.as_entire_binding(),
+                    resource: buddha_iterations.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
                     resource: wgpu::BindingResource::TextureView(ssaa.buddha_render_target()),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: buddha_norm.as_entire_binding(),
                 },
             ],
         });
@@ -273,6 +330,14 @@ impl ComputePipeline {
             compilation_options: wgpu::PipelineCompilationOptions::default(),
             cache: None,
         });
+        let min_max_buddha = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: None,
+            layout: Some(&pipeline_layout),
+            module: &module,
+            entry_point: Some("buddha_min_max"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            cache: None,
+        });
         let render_buddha = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: None,
             layout: Some(&pipeline_layout),
@@ -285,10 +350,12 @@ impl ComputePipeline {
         Self {
             render_mandelbrot,
             compute_buddha,
+            min_max_buddha,
             render_buddha,
             bind_group,
             uniform,
-            buddha,
+            buddha_iterations,
+            buddha_norm,
             buddha_bytes,
         }
     }

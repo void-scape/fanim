@@ -39,30 +39,6 @@ impl Plugin for RenderPlugin {
     }
 }
 
-pub fn default_fractal() -> impl Bundle {
-    (
-        Iterations(1_000),
-        EscapeRadius(100.0),
-        ColorScale(1.0),
-        Exponent(2.0),
-        View {
-            x: 0.0,
-            y: 0.0,
-            z: 2.0,
-        },
-        Rotation(0.0),
-        Julia(0.0),
-        BurningShip(0.0),
-        Buddha(0.0),
-        BuddhaSamples(32),
-        Mandelbrot(1.0),
-        ColorRotation(0.0),
-        CPlane { x: 0.0, y: 0.0 },
-        ZPlane { x: 0.0, y: 0.0 },
-        palette::magma(),
-    )
-}
-
 macro_rules! fractal_component {
     ($name:ident, $type:ty) => {
         crate::lerp_newtype! {
@@ -85,11 +61,21 @@ fractal_component!(BuddhaSamples, u32);
 fractal_component!(ColorRotation, f32);
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy, Component)]
+#[derive(Debug, Clone, Copy, PartialEq, Component)]
 pub struct View {
     pub x: f32,
     pub y: f32,
     pub z: f32,
+}
+
+impl Default for View {
+    fn default() -> Self {
+        Self {
+            x: 0.0,
+            y: 0.0,
+            z: 2.0,
+        }
+    }
 }
 
 impl Lerp for View {
@@ -120,7 +106,7 @@ impl std::ops::Add for View {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy, Component)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Component)]
 pub struct CPlane {
     pub x: f32,
     pub y: f32,
@@ -146,7 +132,7 @@ impl std::ops::Add for CPlane {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy, Component)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Component)]
 pub struct ZPlane {
     pub x: f32,
     pub y: f32,
@@ -185,8 +171,47 @@ impl Lerp for Palette {
 }
 
 #[repr(C)]
-#[derive(Debug)]
-struct Fractal {
+#[derive(Debug, Clone, Copy, PartialEq, Component)]
+pub struct RgbIterations {
+    pub r: u32,
+    pub g: u32,
+    pub b: u32,
+}
+
+impl Default for RgbIterations {
+    fn default() -> Self {
+        Self {
+            r: 1_000,
+            g: 1_000,
+            b: 1_000,
+        }
+    }
+}
+
+impl Lerp for RgbIterations {
+    fn lerp(&self, rhs: &Self, t: f32) -> Self {
+        Self {
+            r: self.r.lerp(&rhs.r, t),
+            g: self.g.lerp(&rhs.g, t),
+            b: self.b.lerp(&rhs.b, t),
+        }
+    }
+}
+
+impl std::ops::Add for RgbIterations {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self::Output {
+        Self {
+            r: self.r + rhs.r,
+            g: self.g + rhs.g,
+            b: self.b + rhs.b,
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Fractal {
     iterations: u32,
     escape_radius: f32,
     color_scale: f32,
@@ -198,9 +223,65 @@ struct Fractal {
     c: CPlane,
     z: ZPlane,
     color_rotation: f32,
-    buddha: f32,
-    mandelbrot: f32,
     buddha_samples: u32,
+    rgb_iterations: RgbIterations,
+}
+
+impl Default for Fractal {
+    fn default() -> Self {
+        Self {
+            iterations: 1_000,
+            escape_radius: 100.0,
+            color_scale: 1.0,
+            exponent: 2.0,
+            view: View::default(),
+            rotation: 0.0,
+            julia: 0.0,
+            burning_ship: 0.0,
+            c: CPlane::default(),
+            z: ZPlane::default(),
+            color_rotation: 0.0,
+            buddha_samples: 32,
+            rgb_iterations: RgbIterations::default(),
+        }
+    }
+}
+
+impl Fractal {
+    pub fn into_bundle(self) -> impl Bundle {
+        let Self {
+            iterations,
+            escape_radius,
+            color_scale,
+            exponent,
+            view,
+            rotation,
+            julia,
+            burning_ship,
+            c,
+            z,
+            color_rotation,
+            buddha_samples,
+            rgb_iterations,
+        } = self;
+
+        (
+            (
+                Iterations(iterations),
+                EscapeRadius(escape_radius),
+                Exponent(exponent),
+            ),
+            (view, Rotation(rotation)),
+            (
+                ColorScale(color_scale),
+                palette::magma(),
+                rgb_iterations,
+                ColorRotation(color_rotation),
+            ),
+            (Julia(julia), BurningShip(burning_ship), c, z),
+            (Mandelbrot(1.0), Buddha(0.0), BuddhaSamples(buddha_samples)),
+        )
+    }
 }
 
 #[derive(Component)]

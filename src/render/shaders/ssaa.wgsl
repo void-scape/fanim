@@ -20,10 +20,11 @@ struct Ssaa {
 @group(0) @binding(0) var mandelbrot: texture_2d<f32>;
 @group(0) @binding(1) var buddha: texture_2d<f32>;
 @group(0) @binding(2) var texture_sampler: sampler;
+@group(0) @binding(3) var<uniform> args: Ssaa;
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 	let m = textureSample(mandelbrot, texture_sampler, in.uv);
 	let b = textureSample(buddha, texture_sampler, in.uv);
-	return vec4(m.rgb * m.a + b.rgb * b.a, 1.0);
+	return vec4(m.rgb * args.mandelbrot + b.rgb * args.buddha, 1.0);
 }
