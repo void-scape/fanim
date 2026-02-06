@@ -1,5 +1,7 @@
 use crate::{
-    render::{Buddha, Mandelbrot, Renderer},
+    encoder::EncodingTarget,
+    params::*,
+    render::{Renderer, Rerender},
 };
 use bevy_ecs::prelude::*;
 
@@ -34,19 +36,20 @@ pub fn spawn(mut commands: Commands, renderer: Single<&Renderer>) {
 pub fn render_pass(
     renderer: Single<&Renderer>,
     pipeline: Single<&SsaaPipeline>,
-    opacity: Single<(Ref<Buddha>, Ref<Mandelbrot>)>,
+    _target: Single<(), (With<Params>, With<Rerender>, With<EncodingTarget>)>,
+    // opacity: Single<(Ref<Buddha>, Ref<Mandelbrot>)>,
 ) {
-    let (buddha, mandelbrot) = opacity.into_inner();
-    if buddha.is_changed() || mandelbrot.is_changed() {
-        renderer.queue.write_buffer(
-            &pipeline.uniform,
-            0,
-            crate::byte_slice(&[SsaaUniform {
-                buddha: **buddha,
-                mandelbrot: **mandelbrot,
-            }]),
-        );
-    }
+    // let (buddha, mandelbrot) = opacity.into_inner();
+    // if buddha.is_changed() || mandelbrot.is_changed() {
+    renderer.queue.write_buffer(
+        &pipeline.uniform,
+        0,
+        crate::byte_slice(&[SsaaUniform {
+            buddha: 0.0,
+            mandelbrot: 1.0,
+        }]),
+    );
+    // }
 
     let mut encoder = renderer
         .device

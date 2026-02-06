@@ -6,20 +6,21 @@ use fanim::prelude::*;
 fn main() {
     _ = std::fs::remove_dir_all("data");
     _ = std::fs::create_dir_all("data");
-
     let hq = false;
-    let (scale, super_samples, fps) = if hq { (240, 2, 60) } else { (32, 1, 10) };
+    let (scale, super_samples, fps) = if hq { (240, 2, 60) } else { (16, 1, 10) };
     App::default()
-        .add_plugins(fanim::VideoPlugin {
-            width: 16 * scale,
-            height: 9 * scale,
-            super_samples,
-            fps,
-            sample_rate: 44_100,
-            data_path: "data".into(),
-            output_path: "out.mp4".into(),
-        })
-        .add_systems(Startup, spawn_animation)
+        .add_plugins((
+            AudioPlugin,
+            ParamPlugin,
+            EncoderPlugin,
+            AnimationPlugin,
+            RenderPlugin {
+                width: 16 * scale,
+                height: 9 * scale,
+                super_samples,
+            },
+        ))
+        .add_systems(Startup, spawn_animation(fps))
         .set_runner(fanim::runner)
         .run();
 }
@@ -117,7 +118,7 @@ pub fn blood_red() -> Palette {
         ])
         .build::<colorgrad::LinearGradient>()
         .unwrap();
-    palette::gradient_palette(&blood)
+    gradient_palette(&blood)
 }
 
 fn color_scale_rms(
@@ -155,95 +156,99 @@ fn palette_peak(
     ***rotation += peak * ***delta;
 }
 
-fn spawn_animation(mut commands: Commands, sample_rate: Single<&SampleRate>) {
-    commands.spawn(AudioPlayer::new("assets/bleed.mp3"));
-    // commands.spawn((
-    //     FrequencyAnalyzer::new(2048),
-    //     LowPass::new(100.0, **sample_rate),
-    // ));
-    commands.spawn(Rms::new(**sample_rate, 0.01));
-    commands.spawn((Peak::default(), LowPass::new(100.0, **sample_rate)));
-    let target = commands
-        .spawn(Fractal::default().into_bundle())
-        .insert((
-            blood_red(),
-            BurningShip(1.0),
-            Exponent(3.0),
-            Iterations(10_000),
-            View {
-                x: 0.0,
-                y: 0.0,
-                z: 16.0,
-            },
-            CPlane { x: -0.4, y: 0.6 },
-        ))
-        .id();
+fn spawn_animation(fps: usize) -> impl FnMut(Commands) -> bevy_ecs::error::Result {
+    move |mut commands: Commands| {
+        commands.spawn(AudioPlayer::new("assets/bleed.mp3"));
+        // commands.spawn((
+        //     FrequencyAnalyzer::new(2048),
+        //     LowPass::new(100.0, **sample_rate),
+        // ));
+        commands.spawn(Rms::new(SampleRate(44_100), 0.01));
+        commands.spawn((Peak::default(), LowPass::new(100.0, SampleRate(44_100))));
+        let target = commands
+            .spawn((
+                VideoEncoder::new("out.mp4", "data", 44_100, fps)?,
+                Params::default(),
+                blood_red(),
+                BurningShip(1.0),
+                Exponent(3.0),
+                Iterations(10_000),
+                View {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 16.0,
+                },
+                CPlane { x: -0.4, y: 0.6 },
+            ))
+            .id();
 
-    commands
-        .spawn(AnimationTarget(target))
-        .insert(animations![parallel![
-            (system(color_scale_rms), Duration(10.0)),
-            (system(palette_peak), Duration(40.0)),
-            animations![
-                (
-                    Keyframe(View {
-                        x: 0.0,
-                        y: 0.0,
-                        z: 2.0,
-                    }),
-                    EaseFunction::SineIn,
-                    Duration(9.0)
-                ),
-                (
-                    Keyframe(View {
-                        x: 0.0,
-                        y: 0.0,
-                        z: 1.25,
-                    }),
-                    EaseFunction::SineOut,
-                    Duration(2.0)
-                ),
-            ],
-            animations![
-                (
-                    Keyframe(Exponent(5.0)),
-                    EaseFunction::SineInOut,
-                    Duration(9.0)
-                ),
-                (
-                    Keyframe(Julia(1.0)),
-                    Keyframe(ColorRotation(0.25)),
-                    Keyframe(Pickover(1.0)),
-                    // Keyframe(BurningShip(0.0)),
-                    Keyframe(Exponent(4.0)),
-                    Keyframe(ColorScale(1.0)),
-                    EaseFunction::ExponentialInOut,
-                    Duration(2.0)
-                ),
-                (
-                    Keyframe(Exponent(2.0)),
-                    EaseFunction::SineInOut,
-                    Duration(6.0)
-                ),
-                (
-                    Keyframe(CPlane { x: -1.729, y: 0.0 }),
-                    EaseFunction::SineInOut,
-                    Duration(6.0)
-                ),
-                (
-                    Keyframe(CPlane {
-                        x: -0.752,
-                        y: -1.131
-                    }),
-                    EaseFunction::SineInOut,
-                    Duration(6.0)
-                ),
-                (
-                    Keyframe(Exponent(4.0)),
-                    Keyframe(ColorScale(2.0)),
-                    EaseFunction::SineInOut,
-                    Duration(6.0)
-                )
-            ]
-        ]]);
+        commands
+            .spawn(AnimationTarget(target))
+            .insert(animations![parallel![
+                (system(color_scale_rms), Duration(10.0)),
+                (system(palette_peak), Duration(40.0)),
+                animations![
+                    (
+                        Keyframe(View {
+                            x: 0.0,
+                            y: 0.0,
+                            z: 2.0,
+                        }),
+                        EaseFunction::SineIn,
+                        Duration(9.0)
+                    ),
+                    (
+                        Keyframe(View {
+                            x: 0.0,
+                            y: 0.0,
+                            z: 1.25,
+                        }),
+                        EaseFunction::SineOut,
+                        Duration(2.0)
+                    ),
+                ],
+                animations![
+                    (
+                        Keyframe(Exponent(5.0)),
+                        EaseFunction::SineInOut,
+                        Duration(9.0)
+                    ),
+                    (
+                        Keyframe(Julia(1.0)),
+                        Keyframe(ColorRotation(0.25)),
+                        Keyframe(Pickover(1.0)),
+                        // Keyframe(BurningShip(0.0)),
+                        Keyframe(Exponent(4.0)),
+                        Keyframe(ColorScale(1.0)),
+                        EaseFunction::ExponentialInOut,
+                        Duration(2.0)
+                    ),
+                    (
+                        Keyframe(Exponent(2.0)),
+                        EaseFunction::SineInOut,
+                        Duration(6.0)
+                    ),
+                    (
+                        Keyframe(CPlane { x: -1.729, y: 0.0 }),
+                        EaseFunction::SineInOut,
+                        Duration(6.0)
+                    ),
+                    (
+                        Keyframe(CPlane {
+                            x: -0.752,
+                            y: -1.131
+                        }),
+                        EaseFunction::SineInOut,
+                        Duration(6.0)
+                    ),
+                    (
+                        Keyframe(Exponent(4.0)),
+                        Keyframe(ColorScale(2.0)),
+                        EaseFunction::SineInOut,
+                        Duration(6.0)
+                    )
+                ]
+            ]]);
+        Ok(())
+    }
 }

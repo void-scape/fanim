@@ -39,8 +39,8 @@ struct BuddhaNorm {
 @group(0) @binding(3) var buddha: texture_storage_2d<rgba32float, write>;
 @group(0) @binding(4) var<storage, read_write> buddha_norm: BuddhaNorm;
 
-@group(1) @binding(0) var palette: texture_2d<f32>;
-@group(1) @binding(1) var palette_sampler: sampler;
+@group(0) @binding(5) var palette: texture_2d<f32>;
+@group(0) @binding(6) var palette_sampler: sampler;
 
 fn c_mul(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {
     return vec2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
@@ -288,6 +288,9 @@ fn func(z: vec2<f32>, c: vec2<f32>) -> vec2<f32> {
 		let bz = c_pow(z_abs, args.exponent) + c;
 		return mz * (1.0 - args.burning_ship) + bz * args.burning_ship;
 	} else if (args.exponent == 2.0) {
+		// tippetts
+		// let x = z.x * z.x - z.y * z.y + c.x;
+		// return vec2(x, 2.0 * x * z.y + c.y);
 		return c_mul(z, z) + c;
 	} else {
 		return c_pow(z, args.exponent) + c;

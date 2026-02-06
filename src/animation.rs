@@ -1,4 +1,4 @@
-use crate::audio::AudioSystems;
+use crate::{audio::AudioSystems, encoder::EncodingTarget};
 use bevy_app::{Plugin, PostStartup, Update};
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::{component::Mutable, lifecycle::HookContext, prelude::*, world::DeferredWorld};
@@ -13,16 +13,15 @@ impl Plugin for AnimationPlugin {
             .add_observer(animation_target)
             .init_resource::<ScheduledKeyframes>()
             .init_resource::<ScheduledDeltas>()
-            .add_systems(
-                PostStartup,
-                (propagate_animation_target, start_roots).chain(),
-            )
+            .add_systems(PostStartup, propagate_animation_target)
             .add_systems(
                 Update,
                 (
+                    start_roots,
                     one_shot_system.in_set(AnimationSystems::Interpolate),
                     playhead.in_set(AnimationSystems::Step),
-                ),
+                )
+                    .chain(),
             );
 
         app.configure_sets(
@@ -134,10 +133,13 @@ pub struct Active;
 
 fn start_roots(
     mut commands: Commands,
-    roots: Query<Entity, (With<Animations>, Without<AnimationOf>)>,
+    roots: Query<(Entity, &AnimationTarget), (With<Animations>, Without<AnimationOf>)>,
+    targets: Query<(), With<EncodingTarget>>,
 ) {
-    for root in roots.iter() {
-        commands.entity(root).insert(Active);
+    for (root, target) in roots.iter() {
+        if targets.contains(target.0) {
+            commands.entity(root).insert(Active);
+        }
     }
 }
 
@@ -197,10 +199,23 @@ fn advance(
 
 fn playhead(
     mut commands: Commands,
-    mut leaves: Query<(Entity, &mut Playhead, &Duration, &AnimationOf), With<Active>>,
-    dt: Single<&DeltaTime>,
+    mut leaves: Query<
+        (
+            Entity,
+            &mut Playhead,
+            &Duration,
+            &AnimationOf,
+            &AnimationTarget,
+        ),
+        With<Active>,
+    >,
+    dt: Query<&DeltaTime>,
 ) {
-    for (entity, mut playhead, duration, parent) in leaves.iter_mut() {
+    for (entity, mut playhead, duration, parent, target) in leaves.iter_mut() {
+        let dt = dt
+            .get(target.0)
+            .expect("animation target contains `DeltaTime`");
+
         playhead.0 += dt.0;
         if playhead.0 >= duration.0 {
             commands.entity(entity).remove::<Active>().insert(Finished);
@@ -429,28 +444,6 @@ lerp_prim!(i16);
 lerp_prim!(i32);
 lerp_prim!(i64);
 lerp_prim!(isize);
-
-#[macro_export]
-macro_rules! lerp_newtype {
-    (
-        $(#[$meta:meta])*
-        $vis:vis struct $name:ident($ivis:vis $type:ty);
-    ) => {
-        $(#[$meta])*
-        $vis struct $name($ivis $type);
-        impl $crate::animation::Lerp for $name {
-            fn lerp(&self, rhs: &Self, t: f32) -> Self {
-                $name(self.0.lerp(&rhs.0, t))
-            }
-        }
-        impl std::ops::Add for $name {
-            type Output = $name;
-            fn add(self, rhs: Self) -> Self::Output {
-                $name(self.0 + rhs.0)
-            }
-        }
-    };
-}
 
 #[derive(Clone, Copy, Component)]
 pub enum EaseFunction {

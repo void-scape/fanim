@@ -12,7 +12,12 @@ name = "snow"
 [[bin]]
 name = "pickover"
 
+[workspace]
+resolver = "3"
+members = ["fanim-macros"]
+
 [dependencies]
+fanim-macros = { path = "fanim-macros" }
 bevy_app = "0.18.0"
 bevy_derive = "0.18.0"
 bevy_ecs = "0.18.0"

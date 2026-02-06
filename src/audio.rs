@@ -1,7 +1,7 @@
-use crate::lerp_newtype;
 use bevy_app::{Plugin, PreUpdate, Update};
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::prelude::*;
+use fanim_macros::Lerp;
 use std::{f32::consts::PI, mem::ManuallyDrop, num::NonZeroU32, path::Path};
 use symphonium::SymphoniumLoader;
 
@@ -9,7 +9,7 @@ pub struct AudioPlugin;
 
 impl Plugin for AudioPlugin {
     fn build(&self, app: &mut bevy_app::App) {
-        // NOTE: `Samples` and `SampleRate` are created by the `EncoderPlugin`.
+        // NOTE: `Samples` and `SampleRate` are created by `VideoEncoder`s.
         app.add_systems(PreUpdate, clear).add_systems(
             Update,
             (
@@ -114,98 +114,14 @@ fn audio_player(
     }
 }
 
-lerp_newtype! {
-    #[derive(Clone, Copy, Component, Deref, DerefMut)]
-    pub struct Volume(pub f32);
-}
+#[derive(Clone, Copy, Lerp, Component, Deref, DerefMut)]
+pub struct Volume(pub f32);
 
 fn volume(mut samples: Single<&mut Samples>, volume: Single<&Volume>) {
     for (l, r) in samples.iter_mut() {
         *l *= volume.0;
         *r *= volume.0;
     }
-}
-
-pub trait Sample<T>
-where
-    T: SampleVal,
-{
-    fn sample(&mut self) -> T;
-}
-
-pub trait SampleVal {
-    fn into_f32(self) -> f32;
-    fn from_f32(v: f32) -> Self;
-}
-
-impl SampleVal for f32 {
-    fn into_f32(self) -> f32 {
-        self
-    }
-    fn from_f32(v: f32) -> Self {
-        v
-    }
-}
-
-impl SampleVal for f64 {
-    fn into_f32(self) -> f32 {
-        self as f32
-    }
-    fn from_f32(v: f32) -> Self {
-        v as f64
-    }
-}
-
-macro_rules! prim_sample_val {
-    ($ty:ty) => {
-        impl SampleVal for $ty {
-            fn into_f32(self) -> f32 {
-                self as f32
-            }
-            fn from_f32(v: f32) -> Self {
-                v.round() as $ty
-            }
-        }
-    };
-}
-
-prim_sample_val!(u8);
-prim_sample_val!(u16);
-prim_sample_val!(u32);
-prim_sample_val!(u64);
-prim_sample_val!(usize);
-
-prim_sample_val!(i8);
-prim_sample_val!(i16);
-prim_sample_val!(i32);
-prim_sample_val!(i64);
-prim_sample_val!(isize);
-
-#[macro_export]
-macro_rules! lp_newtype {
-    (
-        $(#[$meta:meta])*
-        $vis:vis struct $name:ident($ivis:vis $type:ty);
-    ) => {
-        $(#[$meta])*
-        $vis struct $name($ivis $type);
-        impl $crate::audio::Sample<$type> for $name {
-            fn sample(&mut self) -> $type {
-                self.0
-            }
-        }
-        impl $crate::animation::Lerp for $name {
-            fn lerp(&self, rhs: &Self, t: f32) -> Self {
-                $name(self.0.lerp(&rhs.0, t))
-            }
-        }
-        impl std::ops::Add for $name {
-            type Output = $name;
-            fn add(self, rhs: Self) -> Self::Output {
-                $name(self.0 + rhs.0)
-            }
-        }
-    };
 }
 
 // Implementation taken from the lovely DaisySP:
