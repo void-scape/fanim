@@ -1,8 +1,4 @@
-use crate::{
-    encoder::EncodingTarget,
-    params::*,
-    render::{Renderer, Rerender},
-};
+use crate::{encoder::EncodingTarget, params::*, render::Renderer};
 use bevy_ecs::prelude::*;
 
 #[repr(C)]
@@ -36,7 +32,7 @@ pub fn spawn(mut commands: Commands, renderer: Single<&Renderer>) {
 pub fn render_pass(
     renderer: Single<&Renderer>,
     pipeline: Single<&SsaaPipeline>,
-    _target: Single<(), (With<Params>, With<Rerender>, With<EncodingTarget>)>,
+    _target: Single<(), (With<Params>, With<EncodingTarget>)>,
     // opacity: Single<(Ref<Buddha>, Ref<Mandelbrot>)>,
 ) {
     // let (buddha, mandelbrot) = opacity.into_inner();

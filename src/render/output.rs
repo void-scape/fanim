@@ -1,8 +1,4 @@
-use crate::{
-    encoder::EncodingTarget,
-    params::Params,
-    render::{Renderer, Rerender, ssaa::SsaaPipeline},
-};
+use crate::render::{Renderer, ssaa::SsaaPipeline};
 use bevy_ecs::prelude::*;
 use tint::Srgb;
 
@@ -39,14 +35,10 @@ pub fn spawn(mut commands: Commands, renderer: Single<&Renderer>) {
 }
 
 pub fn map_output(
-    mut commands: Commands,
     mut output: Single<&mut OutputBuffer>,
     renderer: Single<&Renderer>,
     ssaa: Single<&SsaaPipeline>,
-    target: Single<Entity, (With<Params>, With<Rerender>, With<EncodingTarget>)>,
 ) {
-    commands.entity(*target).remove::<Rerender>();
-
     let mut encoder = renderer
         .device
         .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });

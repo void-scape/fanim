@@ -20,34 +20,36 @@ fn main() {
 }
 
 fn spawn_fractal(mut commands: Commands) {
-    commands.spawn((
-        ImageEncoder::new("out.png"),
-        Params::default(),
-        View {
-            x: 0.0,
-            y: 0.0,
-            z: 1.5,
-        },
-        CPlane { x: 1.0, y: 1.0 },
-        Julia(1.0),
-        Exponent(4.0),
-        Pickover(1.0),
-        ColorScale(1.0),
-        cubehelix_default(),
-    ));
+    commands
+        .spawn(CollageEncoder::new("out.png", "data"))
+        .with_children(|s| {
+            s.spawn((
+                Params::default(),
+                View {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 1.5,
+                },
+                CPlane { x: 1.0, y: 1.0 },
+                Julia(1.0),
+                Exponent(4.0),
+                Pickover(1.0),
+                ColorScale(1.0),
+                cubehelix_default(),
+            ));
 
-    commands.spawn((
-        ImageEncoder::new("out1.png"),
-        Params::default(),
-        View {
-            x: 0.0,
-            y: 0.0,
-            z: 10.5,
-        },
-        CPlane { x: 1.0, y: 1.0 },
-        Julia(1.0),
-        Exponent(3.0),
-        Pickover(0.5),
-        ColorScale(2.0),
-    ));
+            s.spawn((
+                Params::default(),
+                View {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 10.5,
+                },
+                CPlane { x: 1.0, y: 1.0 },
+                Julia(1.0),
+                Exponent(3.0),
+                Pickover(0.5),
+                ColorScale(2.0),
+            ));
+        });
 }

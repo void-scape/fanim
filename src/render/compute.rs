@@ -30,11 +30,9 @@ pub fn compute_pass(
     pipeline: Single<&ComputePipeline>,
     ssaa: Single<&SsaaPipeline>,
     // opacity: Single<(Ref<Mandelbrot>, Ref<Buddha>, &BuddhaSamples)>,
-    params: Single<(&Params, &Palette), (With<EncodingTarget>, With<Rerender>)>,
-    // mut last_buddha: Local<Option<Params>>,
-    // mut last_mandelbrot: Local<Option<Params>>,
-    // mut last_fractal: Local<Params>,
+    params: Single<(&Params, &Palette), With<EncodingTarget>>,
 ) {
+    // TODO: only write these if they change, but a simple Ref check won't do
     let (params, palette) = params.into_inner();
     renderer.queue.write_texture(
         wgpu::TexelCopyTextureInfo {
@@ -59,11 +57,6 @@ pub fn compute_pass(
     renderer
         .queue
         .write_buffer(&pipeline.uniform, 0, crate::byte_slice(&[*params]));
-    // *last_fractal = fractal;
-
-    // let (mandelbrot, buddha, buddha_samples) = opacity.into_inner();
-    // if **mandelbrot > 0.0 && last_mandelbrot.is_none_or(|f| f != *last_fractal) {
-    //     *last_mandelbrot = Some(*last_fractal);
 
     let mut encoder = renderer
         .device
@@ -82,10 +75,7 @@ pub fn compute_pass(
     drop(cpass);
 
     renderer.queue.submit([encoder.finish()]);
-    // }
 
-    // if **buddha > 0.0 && last_buddha.is_none_or(|f| f != *last_fractal) {
-    //     *last_buddha = Some(*last_fractal);
     //     renderer
     //         .queue
     //         .write_buffer_with(
@@ -142,7 +132,6 @@ pub fn compute_pass(
     //     drop(cpass);
     //
     //     renderer.queue.submit([encoder.finish()]);
-    // }
 }
 
 impl ComputePipeline {

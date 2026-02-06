@@ -1,10 +1,6 @@
 use bevy_app::{Plugin, PostStartup, PostUpdate, PreStartup};
 use bevy_ecs::prelude::*;
 
-use crate::{
-    encoder::EncodingTarget,
-    params::{Palette, Params},
-};
 pub use output::OutputBuffer;
 
 mod compute;
@@ -34,7 +30,6 @@ impl Plugin for RenderPlugin {
             .add_systems(
                 PostUpdate,
                 (
-                    rerender,
                     compute::compute_pass.in_set(RenderSystems::Compute),
                     ssaa::render_pass.in_set(RenderSystems::Render),
                     output::map_output.in_set(RenderSystems::MapOutput),
@@ -57,20 +52,6 @@ pub enum RenderSystems {
     Compute,
     Render,
     MapOutput,
-}
-
-#[derive(Default, Component)]
-pub struct Rerender;
-
-fn rerender(
-    mut commands: Commands,
-    params: Query<(Entity, Ref<Params>, Ref<Palette>), With<EncodingTarget>>,
-) {
-    for (entity, params, palette) in params.iter() {
-        if params.is_changed() || palette.is_changed() {
-            commands.entity(entity).insert(Rerender);
-        }
-    }
 }
 
 #[derive(Component)]

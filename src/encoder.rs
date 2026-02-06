@@ -2,7 +2,7 @@ use crate::{
     audio::{SampleRate, Samples},
     params::Params,
     prelude::{AnimationOf, AnimationTarget, Animations, DeltaTime, Finished},
-    render::{OutputBuffer, RenderSystems, Renderer, Rerender},
+    render::{OutputBuffer, RenderSystems, Renderer},
 };
 use bevy_app::{AppExit, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::{lifecycle::HookContext, prelude::*, world::DeferredWorld};
@@ -19,13 +19,14 @@ impl Plugin for EncoderPlugin {
     fn build(&self, app: &mut bevy_app::App) {
         app.add_systems(PreUpdate, choose_target).add_systems(
             PostUpdate,
-            (encode_image, encode_video).after(RenderSystems::MapOutput),
+            ((encode_image, encode_video), encode_collage)
+                .chain()
+                .after(RenderSystems::MapOutput),
         );
     }
 }
 
 #[derive(Component)]
-#[require(Rerender)]
 pub struct EncodingTarget;
 
 fn choose_target(
@@ -39,6 +40,7 @@ fn choose_target(
             Or<(With<ImageEncoder>, With<VideoEncoder>)>,
         ),
     >,
+    collages: Query<(), With<CollageEncoder>>,
 ) {
     if !active.is_empty() {
         return;
@@ -49,7 +51,9 @@ fn choose_target(
             commands.entity(entity).insert(EncodingTarget);
         }
         None => {
-            writer.write(AppExit::Success);
+            if collages.is_empty() {
+                writer.write(AppExit::Success);
+            }
         }
     }
 }
@@ -174,6 +178,92 @@ fn encode_video(
     }
 
     Ok(())
+}
+
+#[derive(Component)]
+pub struct CollageEncoder {
+    output_path: String,
+    data_path: String,
+    init: Option<usize>,
+}
+
+impl CollageEncoder {
+    pub fn new<P1: AsRef<Path>, P2: AsRef<Path>>(output_path: P1, data_path: P2) -> Self {
+        Self {
+            output_path: output_path.as_ref().to_string_lossy().to_string(),
+            data_path: data_path.as_ref().to_string_lossy().to_string(),
+            init: None,
+        }
+    }
+}
+
+fn encode_collage(
+    mut commands: Commands,
+    renderer: Single<&Renderer>,
+    collage_encoder: Single<(Entity, &mut CollageEncoder, Option<&Children>)>,
+) -> bevy_ecs::error::Result {
+    let (entity, mut encoder, children) = collage_encoder.into_inner();
+    match encoder.init {
+        Some(count) => {
+            if children.is_none() {
+                commands.entity(entity).despawn();
+                collage(
+                    &(0..count)
+                        .map(|i| format!("{}/{i}.png", encoder.data_path))
+                        .collect::<Vec<_>>(),
+                    renderer.width,
+                    renderer.height,
+                    &encoder.output_path,
+                )?;
+                println!(
+                    "[LOG] Wrote {} bytes to {}",
+                    std::fs::metadata(&encoder.output_path)?.size(),
+                    encoder.output_path
+                );
+            }
+        }
+        None => {
+            for (i, entity) in children
+                .expect("`CollageEncoder` has children")
+                .iter()
+                .enumerate()
+            {
+                commands
+                    .entity(entity)
+                    .insert(ImageEncoder::new(format!("{}/{i}.png", encoder.data_path)));
+            }
+            encoder.init = Some(children.unwrap().len());
+        }
+    }
+    Ok(())
+}
+
+fn collage(files: &[String], width: usize, height: usize, output: &str) -> std::io::Result<()> {
+    let count = files.len();
+    let mut cols = count.isqrt();
+    if cols * cols != count {
+        cols += 1;
+    }
+    let rows = count.div_ceil(cols);
+    let mut collage = vec![0u8; width * cols * height * rows * 4];
+    for (i, file) in files.iter().enumerate() {
+        let file = std::fs::File::open(file)?;
+        let reader = std::io::BufReader::new(file);
+        let mut reader = png::Decoder::new(reader).read_info()?;
+        let mut frame = vec![0; reader.output_buffer_size().unwrap()];
+        reader.next_frame(&mut frame).unwrap();
+
+        let xoffset = (i % cols) * width;
+        let yoffset = (i / cols) * height;
+
+        for y in 0..height {
+            let src_start = y * width * 4;
+            let dest_start = ((yoffset + y) * width * cols + xoffset) * 4;
+            collage[dest_start..dest_start + width * 4]
+                .copy_from_slice(&frame[src_start..src_start + width * 4]);
+        }
+    }
+    png(output, &collage, width * cols, height * rows)
 }
 
 // use crate::{
