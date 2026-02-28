@@ -58,7 +58,7 @@ fn spawn_animation(mut commands: Commands) {
 ### Video
 
 There are five components required for rendering a video:
-- `VideoEncoder` - Renders the entity as an image to the specified path.
+- `VideoEncoder` - Renders the entity as a video to the specified path with additional configuration.
 - `Params` - Populates the entity with the default parameters.
 - `Mandelbrot`/`Buddha`/`Bulb` - The kind of fractal you want to render.
 - `AnimationTarget` - Tells `animations!` what entity to animate.
