@@ -13,18 +13,21 @@ fn vs_main(@builtin(vertex_index) id: u32) -> VertexOutput {
 }
 
 struct Ssaa {
-	buddha: f32,
-	mandelbrot: f32,
+    mandelbrot: f32,
+    buddha: f32,
+    bulb: f32,
 }
 
 @group(0) @binding(0) var mandelbrot: texture_2d<f32>;
 @group(0) @binding(1) var buddha: texture_2d<f32>;
-@group(0) @binding(2) var texture_sampler: sampler;
-@group(0) @binding(3) var<uniform> args: Ssaa;
+@group(0) @binding(2) var bulb: texture_2d<f32>;
+@group(0) @binding(3) var texture_sampler: sampler;
+@group(0) @binding(4) var<uniform> args: Ssaa;
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 	let m = textureSample(mandelbrot, texture_sampler, in.uv);
 	let b = textureSample(buddha, texture_sampler, in.uv);
-	return vec4(m.rgb * args.mandelbrot + b.rgb * args.buddha, 1.0);
+	let l = textureSample(bulb, texture_sampler, in.uv);
+	return vec4(m.rgb * args.mandelbrot + b.rgb * args.buddha + l.rgb * args.bulb, 1.0);
 }

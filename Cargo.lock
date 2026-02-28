@@ -708,7 +708,6 @@ dependencies = [
  "fanim-macros",
  "png",
  "pollster",
- "rustfft",
  "symphonium",
  "tint",
  "wgpu",
@@ -1912,6 +1911,7 @@ dependencies = [
 [[package]]
 name = "tint"
 version = "0.1.0"
+source = "git+https://github.com/void-scape/tint?rev=8cf23787095301f2644487750c4a4db39a08b60e#8cf23787095301f2644487750c4a4db39a08b60e"
 dependencies = [
  "serde",
 ]

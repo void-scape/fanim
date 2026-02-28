@@ -3,15 +3,6 @@ name = "fanim"
 version = "0.1.0"
 edition = "2024"
 
-[[bin]]
-name = "bleed"
-
-[[bin]]
-name = "snow"
-
-[[bin]]
-name = "pickover"
-
 [workspace]
 resolver = "3"
 members = ["fanim-macros"]
@@ -25,7 +16,8 @@ colorgrad = { version = "0.8.0", features = ["preset"] }
 env_logger = "0.11.8"
 png = { version = "0.18.0", features = ["zlib-rs"] }
 pollster = "0.4.0"
-rustfft = "6.4.1"
 symphonium = { version = "0.7.1", features = ["resampler", "mp3"] }
-tint = { path = "tint", features = ["std", "serde"] }
+tint = { git = "https://github.com/void-scape/tint", rev = "8cf23787095301f2644487750c4a4db39a08b60e", features = [
+	"serde",
+] }
 wgpu = "28.0.0"

@@ -15,25 +15,105 @@ impl Plugin for ParamPlugin {
         app.add_systems(
             PostUpdate,
             (
+                // mandelbrot family
+                ColorScale::system,
+                ColorRotation::system,
+                Pickover::system,
+                // buddha
+                BuddhaSamples::system,
+                RgbIterations::system,
+                // shared
                 Iterations::system,
                 EscapeRadius::system,
-                ColorScale::system,
                 Exponent::system,
                 Rotation::system,
                 Julia::system,
                 BurningShip::system,
-                BuddhaSamples::system,
-                ColorRotation::system,
-                Pickover::system,
                 View::system,
                 CPlane::system,
                 ZPlane::system,
-                RgbIterations::system,
             )
                 .before(RenderSystems::Compute),
         );
     }
 }
+
+// Mandelbrot Family
+
+#[derive(Debug, Clone, Copy, PartialEq, Lerp, Add, Component, Deref, DerefMut)]
+pub struct Mandelbrot(pub f32);
+
+impl Default for Mandelbrot {
+    fn default() -> Self {
+        Self(1.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Lerp, Add, Param, Component, Deref, DerefMut)]
+pub struct ColorScale(pub f32);
+
+impl Default for ColorScale {
+    fn default() -> Self {
+        Self(1.0)
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Lerp, Add, Param, Component, Deref, DerefMut)]
+pub struct ColorRotation(pub f32);
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Lerp, Add, Param, Component, Deref, DerefMut)]
+pub struct Pickover(pub f32);
+
+// Buddha
+
+#[derive(Debug, Clone, Copy, PartialEq, Lerp, Add, Component, Deref, DerefMut)]
+pub struct Buddha(pub f32);
+
+impl Default for Buddha {
+    fn default() -> Self {
+        Self(1.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Lerp, Add, Param, Component, Deref, DerefMut)]
+pub struct BuddhaSamples(pub u32);
+
+impl Default for BuddhaSamples {
+    fn default() -> Self {
+        Self(32)
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Lerp, Add, Param, Component)]
+pub struct RgbIterations {
+    pub r: u32,
+    pub g: u32,
+    pub b: u32,
+}
+
+impl Default for RgbIterations {
+    fn default() -> Self {
+        Self {
+            r: 1_000,
+            g: 1_000,
+            b: 1_000,
+        }
+    }
+}
+
+// Bulb
+
+#[derive(Debug, Clone, Copy, PartialEq, Lerp, Add, Component, Deref, DerefMut)]
+pub struct Bulb(pub f32);
+
+impl Default for Bulb {
+    fn default() -> Self {
+        Self(1.0)
+    }
+}
+
+// Shared
 
 #[derive(Debug, Clone, Copy, PartialEq, Lerp, Add, Param, Component, Deref, DerefMut)]
 pub struct Iterations(pub u32);
@@ -54,15 +134,6 @@ impl Default for EscapeRadius {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Lerp, Add, Param, Component, Deref, DerefMut)]
-pub struct ColorScale(pub f32);
-
-impl Default for ColorScale {
-    fn default() -> Self {
-        Self(1.0)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Lerp, Add, Param, Component, Deref, DerefMut)]
 pub struct Exponent(pub f32);
 
 impl Default for Exponent {
@@ -79,21 +150,6 @@ pub struct Julia(pub f32);
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Lerp, Add, Param, Component, Deref, DerefMut)]
 pub struct BurningShip(pub f32);
-
-#[derive(Debug, Clone, Copy, PartialEq, Lerp, Add, Param, Component, Deref, DerefMut)]
-pub struct BuddhaSamples(pub u32);
-
-impl Default for BuddhaSamples {
-    fn default() -> Self {
-        Self(32)
-    }
-}
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Lerp, Add, Param, Component, Deref, DerefMut)]
-pub struct ColorRotation(pub f32);
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Lerp, Add, Param, Component, Deref, DerefMut)]
-pub struct Pickover(pub f32);
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Add, Param, Component)]
@@ -142,36 +198,6 @@ pub struct ZPlane {
     pub x: f32,
     pub y: f32,
 }
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Lerp, Add, Param, Component)]
-pub struct RgbIterations {
-    pub r: u32,
-    pub g: u32,
-    pub b: u32,
-}
-
-impl Default for RgbIterations {
-    fn default() -> Self {
-        Self {
-            r: 1_000,
-            g: 1_000,
-            b: 1_000,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Lerp, Add, Component, Deref, DerefMut)]
-pub struct Mandelbrot(pub f32);
-
-impl Default for Mandelbrot {
-    fn default() -> Self {
-        Self(1.0)
-    }
-}
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Lerp, Add, Component, Deref, DerefMut)]
-pub struct Buddha(pub f32);
 
 pub const PALETTE_LEN: usize = 32;
 #[derive(Clone, Component, Deref, DerefMut)]
@@ -267,28 +293,36 @@ pub fn gradient_palette(grad: &impl colorgrad::Gradient) -> Palette {
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Component)]
 #[require(
+    // mandelbrot family
+    ColorScale,
+    ColorRotation,
+    Pickover,
+    // buddha
+    BuddhaSamples,
+    RgbIterations,
+    // shared
     Iterations,
     EscapeRadius,
-    ColorScale,
     Exponent,
     Rotation,
     Julia,
     BurningShip,
-    BuddhaSamples,
-    ColorRotation,
-    Pickover,
     View,
     CPlane,
     ZPlane,
-    RgbIterations,
-    Mandelbrot,
-    Buddha,
-    Palette
+    Palette,
 )]
 pub struct Params {
+    // mandelbrot family
+    pub color_scale: ColorScale,
+    pub color_rotation: ColorRotation,
+    pub pickover: Pickover,
+    // buddha
+    pub buddha_samples: BuddhaSamples,
+    pub rgb_iterations: RgbIterations,
+    // shared
     pub iterations: Iterations,
     pub escape_radius: EscapeRadius,
-    pub color_scale: ColorScale,
     pub exponent: Exponent,
     pub view: View,
     pub rotation: Rotation,
@@ -296,8 +330,4 @@ pub struct Params {
     pub burning_ship: BurningShip,
     pub c_plane: CPlane,
     pub z_plane: ZPlane,
-    pub color_rotation: ColorRotation,
-    pub buddha_samples: BuddhaSamples,
-    pub rgb_iterations: RgbIterations,
-    pub pickover: Pickover,
 }

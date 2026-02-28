@@ -3,8 +3,9 @@ use bevy_ecs::prelude::*;
 
 #[repr(C)]
 struct SsaaUniform {
-    buddha: f32,
     mandelbrot: f32,
+    buddha: f32,
+    bulb: f32,
 }
 
 #[derive(Component)]
@@ -14,6 +15,7 @@ pub struct SsaaPipeline {
     uniform: wgpu::Buffer,
     mandelbrot: wgpu::TextureView,
     buddha: wgpu::TextureView,
+    bulb: wgpu::TextureView,
     dst: wgpu::Texture,
     dst_view: wgpu::TextureView,
     samples: usize,
@@ -32,20 +34,24 @@ pub fn spawn(mut commands: Commands, renderer: Single<&Renderer>) {
 pub fn render_pass(
     renderer: Single<&Renderer>,
     pipeline: Single<&SsaaPipeline>,
-    _target: Single<(), (With<Params>, With<EncodingTarget>)>,
-    // opacity: Single<(Ref<Buddha>, Ref<Mandelbrot>)>,
+    target: Single<
+        (Option<&Mandelbrot>, Option<&Buddha>, Option<&Bulb>),
+        (With<Params>, With<EncodingTarget>),
+    >,
 ) {
-    // let (buddha, mandelbrot) = opacity.into_inner();
-    // if buddha.is_changed() || mandelbrot.is_changed() {
+    let (mandelbrot, buddha, bulb) = target.into_inner();
+    let mandelbrot = mandelbrot.map_or(0.0, |m| **m);
+    let buddha = buddha.map_or(0.0, |m| **m);
+    let bulb = bulb.map_or(0.0, |m| **m);
     renderer.queue.write_buffer(
         &pipeline.uniform,
         0,
         crate::byte_slice(&[SsaaUniform {
-            buddha: 0.0,
-            mandelbrot: 1.0,
+            mandelbrot,
+            buddha,
+            bulb,
         }]),
     );
-    // }
 
     let mut encoder = renderer
         .device
@@ -134,6 +140,24 @@ impl SsaaPipeline {
             .create_texture(&buddha_desc)
             .create_view(&Default::default());
 
+        let bulb_desc = wgpu::TextureDescriptor {
+            size: wgpu::Extent3d {
+                width: (width * samples) as u32,
+                height: (height * samples) as u32,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba32Float,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
+            label: None,
+            view_formats: &[],
+        };
+        let bulb = device
+            .create_texture(&bulb_desc)
+            .create_view(&Default::default());
+
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
@@ -173,11 +197,21 @@ impl SsaaPipeline {
                 wgpu::BindGroupLayoutEntry {
                     binding: 2,
                     visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
                     count: None,
                 },
                 wgpu::BindGroupLayoutEntry {
                     binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
@@ -203,10 +237,14 @@ impl SsaaPipeline {
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
+                    resource: wgpu::BindingResource::TextureView(&bulb),
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
                     resource: uniform.as_entire_binding(),
                 },
             ],
@@ -246,6 +284,7 @@ impl SsaaPipeline {
             uniform,
             mandelbrot,
             buddha,
+            bulb,
             dst,
             dst_view,
             samples,
@@ -262,6 +301,10 @@ impl SsaaPipeline {
 
     pub fn buddha_render_target(&self) -> &wgpu::TextureView {
         &self.buddha
+    }
+
+    pub fn bulb_render_target(&self) -> &wgpu::TextureView {
+        &self.bulb
     }
 
     pub fn output_texture(&self) -> &wgpu::Texture {

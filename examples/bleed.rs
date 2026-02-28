@@ -6,8 +6,7 @@ use fanim::prelude::*;
 fn main() {
     _ = std::fs::remove_dir_all("data");
     _ = std::fs::create_dir_all("data");
-    let hq = false;
-    let (scale, super_samples, fps) = if hq { (240, 2, 60) } else { (16, 1, 10) };
+    let scale = 32;
     App::default()
         .add_plugins((
             AudioPlugin,
@@ -17,10 +16,10 @@ fn main() {
             RenderPlugin {
                 width: 16 * scale,
                 height: 9 * scale,
-                super_samples,
+                super_samples: 1,
             },
         ))
-        .add_systems(Startup, spawn_animation(fps))
+        .add_systems(Startup, spawn_animation(30))
         .set_runner(fanim::runner)
         .run();
 }
@@ -59,52 +58,6 @@ impl Peak {
     }
 }
 
-// #[derive(Component)]
-// struct FrequencyAnalyzer {
-//     planner: FftPlanner<f32>,
-//     buffer: Vec<Complex<f32>>,
-//     bass: f32,
-//     mid: f32,
-//     high: f32,
-// }
-//
-// impl FrequencyAnalyzer {
-//     pub fn new(size: usize) -> Self {
-//         Self {
-//             planner: FftPlanner::new(),
-//             buffer: vec![Complex::new(0.0, 0.0); size],
-//             bass: 0.0,
-//             mid: 0.0,
-//             high: 0.0,
-//         }
-//     }
-//
-//     pub fn process(&mut self, samples: &[(f32, f32)]) {
-//         for (i, (l, r)) in samples.iter().enumerate().take(self.buffer.len()) {
-//             let mono = (l + r) / 2.0;
-//             self.buffer[i] = Complex::new(mono, 0.0);
-//         }
-//         for i in samples.len()..self.buffer.len() {
-//             self.buffer[i] = Complex::new(0.0, 0.0);
-//         }
-//         let fft = self.planner.plan_fft_forward(self.buffer.len());
-//         fft.process(&mut self.buffer);
-//         let bass_end = self.buffer.len() / 16;
-//         let mid_end = self.buffer.len() / 3;
-//         self.bass = self.band_energy(0, bass_end);
-//         self.mid = self.band_energy(bass_end, mid_end);
-//         self.high = self.band_energy(mid_end, self.buffer.len() / 2);
-//     }
-//
-//     fn band_energy(&self, start: usize, end: usize) -> f32 {
-//         let sum = self.buffer[start..end]
-//             .iter()
-//             .map(|c| c.norm())
-//             .sum::<f32>();
-//         sum / (end - start) as f32
-//     }
-// }
-
 pub fn blood_red() -> Palette {
     let blood = GradientBuilder::new()
         .colors(&[
@@ -133,42 +86,29 @@ fn color_scale_rms(
 }
 
 fn palette_peak(
-    // mut palette: Single<&mut Palette>,
     mut rotation: Single<&mut Rotation>,
-    // analyzer: Single<(&mut FrequencyAnalyzer, &mut LowPass)>,
     peak: Single<(&mut Peak, &mut LowPass)>,
     samples: Single<&Samples>,
     delta: Single<&DeltaTime>,
 ) {
-    // let (mut analyzer, mut analyzer_lp) = analyzer.into_inner();
-    // analyzer.process(samples.as_slice());
-    // let p1 = blood_red();
-    // let p2 = palette::cubehelix_default();
-    // let p = analyzer_lp.process((analyzer.high * 10.0 - analyzer.bass * 0.25).clamp(0.0, 1.0));
-    // **palette = p1.lerp(&p2, p);
-
     let (mut peak, mut peak_lp) = peak.into_inner();
     for (l, r) in samples.iter() {
         peak.process((*l + *r) / 2.0);
     }
     let peak = peak_lp.process(peak.max);
-    // ***color_scale = peak * 3.0;
     ***rotation += peak * ***delta;
 }
 
 fn spawn_animation(fps: usize) -> impl FnMut(Commands) -> bevy_ecs::error::Result {
     move |mut commands: Commands| {
         commands.spawn(AudioPlayer::new("assets/bleed.mp3"));
-        // commands.spawn((
-        //     FrequencyAnalyzer::new(2048),
-        //     LowPass::new(100.0, **sample_rate),
-        // ));
         commands.spawn(Rms::new(SampleRate(44_100), 0.01));
         commands.spawn((Peak::default(), LowPass::new(100.0, SampleRate(44_100))));
         let target = commands
             .spawn((
                 VideoEncoder::new("out.mp4", "data", 44_100, fps)?,
                 Params::default(),
+                Mandelbrot::default(),
                 blood_red(),
                 BurningShip(1.0),
                 Exponent(3.0),

@@ -3,7 +3,9 @@ use bevy_ecs::prelude::*;
 
 pub use output::OutputBuffer;
 
-mod compute;
+mod buddha;
+mod bulb;
+mod mandelbrot;
 mod output;
 mod ssaa;
 
@@ -25,12 +27,24 @@ impl Plugin for RenderPlugin {
         app.add_systems(PreStartup, spawn_renderer)
             .add_systems(
                 PostStartup,
-                (output::spawn, ssaa::spawn, compute::spawn).chain(),
+                (
+                    output::spawn,
+                    ssaa::spawn,
+                    mandelbrot::spawn,
+                    buddha::spawn,
+                    bulb::spawn,
+                )
+                    .chain(),
             )
             .add_systems(
                 PostUpdate,
                 (
-                    compute::compute_pass.in_set(RenderSystems::Compute),
+                    (
+                        mandelbrot::compute_pass,
+                        buddha::compute_pass,
+                        bulb::compute_pass,
+                    )
+                        .in_set(RenderSystems::Compute),
                     ssaa::render_pass.in_set(RenderSystems::Render),
                     output::map_output.in_set(RenderSystems::MapOutput),
                 )
